@@ -1,5 +1,7 @@
 node_modules
 dist
+.git
+.github
 dev-server.*.log
 quality-cache.json
 .env

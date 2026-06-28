@@ -9,6 +9,45 @@
 - Port: `3000`
 - Start command: `node server/server.mjs`
 
+## Publish image with GitHub Actions and GHCR
+
+This repository includes `.github/workflows/publish-ghcr.yml`. After the repo is pushed to GitHub, it builds the Docker image and publishes it to GitHub Container Registry.
+
+What you need to do:
+
+1. Push this repository to GitHub.
+2. In GitHub, open **Settings > Actions > General** and make sure workflow permissions allow read/write access.
+3. Push to the default `main` branch, or run **Actions > Publish GHCR image > Run workflow** manually.
+4. Open the workflow run and copy the image tag. The default image name is:
+
+```text
+ghcr.io/<owner>/<repo>:latest
+ghcr.io/<owner>/<repo>:sha-<commit-sha>
+```
+
+Use the `sha-<commit-sha>` tag for stable Sealos releases. Use `latest` only when you are comfortable with every `main` push updating the deployment target.
+
+If the GHCR package is private, configure an image registry credential in Sealos:
+
+```text
+Registry: ghcr.io
+Username: your-github-username
+Password: GitHub personal access token with read:packages
+```
+
+For the lowest friction, make the GHCR package public and let Sealos pull it without credentials.
+
+## Sealos application settings
+
+Use the published image:
+
+```text
+Image: ghcr.io/<owner>/<repo>:sha-<commit-sha>
+Port: 3000
+Volume mount: /data
+Replicas: 1
+```
+
 ## Persistent volume layout
 
 Mount a Sealos persistent volume at `/data`. The default container environment expects:
