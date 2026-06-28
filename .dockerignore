@@ -1,0 +1,7 @@
+node_modules
+dist
+dev-server.*.log
+quality-cache.json
+.env
+.env.*
+npm-debug.log*
