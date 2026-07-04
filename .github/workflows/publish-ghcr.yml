@@ -58,6 +58,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -70,3 +72,24 @@ jobs:
             echo "${{ steps.meta.outputs.tags }}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-sealos:
+    name: Deploy to Sealos
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.SEALOS_KUBECONFIG }}" > "$HOME/.kube/config"
+
+      - name: Update image
+        run: |
+          curl -LO "https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          ./kubectl set image statefulset/slicer-labeler \
+            slicer-labeler=${{ env.REGISTRY }}/${{ github.repository }}:sha-${{ github.sha }}
+
+      - name: Wait for rollout
+        run: |
+          ./kubectl rollout status statefulset/slicer-labeler --timeout=120s

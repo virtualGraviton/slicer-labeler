@@ -932,6 +932,7 @@ export default function App() {
       {/* Header */}
       <header className="app-header" ref={headerRef}>
         <h1 className="app-title">Slicer Labeler</h1>
+        <span className="version-tag" title="构建版本">{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__.slice(0, 7) : 'dev'}</span>
         <div className="header-right">
           {hasUnsavedChanges && (
             <span style={{ color: 'var(--warning)', fontSize: 13 }}>

@@ -1,9 +1,11 @@
 FROM node:20-bookworm-slim AS build
 
+ARG APP_VERSION=dev
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
+ENV APP_VERSION=${APP_VERSION}
 RUN npm run build
 
 FROM node:20-bookworm-slim
