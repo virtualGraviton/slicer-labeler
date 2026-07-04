@@ -407,17 +407,17 @@ async function polishMergeTextWithDeepSeek({ entries, hardMergedText, speaker, l
     thinking: { type: 'disabled' },
     response_format: { type: 'json_object' },
     temperature: 0,
-    max_tokens: 900,
+    max_tokens: 1500,
     messages: [
       {
         role: 'system',
         content:
-          '你是语音切片 ASR 文本合并润色助手。你只处理相邻切片合并时产生的文本衔接问题：句尾和下一句句首重复词、重复短语、重复标点、缺失或多余空格，以及符合对应语言语法的基础标点衔接。不要翻译，不要扩写，不要改写事实，不要改变说话风格，不要新增原文没有的信息。必须只输出合法 JSON 对象，不要 Markdown。JSON 字段: polished_text(string), explanation_zh(string)。explanation_zh 必须用中文简要说明做了哪些合并或为什么不需要修改。',
+          '你是语音切片 ASR 文本合并润色助手。你处理相邻切片合并时产生的所有文本衔接问题：句尾和下一句句首重复词、重复短语、重复标点、缺失或多余空格、错误断句、以及 ASR 因切分导致的误识别（如尾音被误补全成短语、首音缺失等）。请从整句的语法通顺和语义连贯角度出发，必要时可以对衔接处前后少量词语进行微调或合并，使合并后的句子符合对应语言的自然表达。但严禁翻译、扩写、改写事实、改变说话风格、或新增原文没有的信息——所有改动必须严格基于两段原文已有的内容，且改动范围应尽量小。必须只输出合法 JSON 对象，不要 Markdown。JSON 字段: polished_text(string), explanation_zh(string)。explanation_zh 必须用中文简要说明做了哪些修改以及修改依据（如"语法不通顺"、"ASR 尾音误补"等）。',
       },
       {
         role: 'user',
         content: JSON.stringify({
-          task: '请根据 language 的语法润色 hard_merged_text，使它成为自然的合并文本。重点修复切分导致的重复词、重复标点和句首句尾衔接问题。',
+          task: '请根据 language 的语法润色 hard_merged_text，使它成为自然连贯的完整句子。重点修复切分导致的：重复词/重复标点、句首句尾衔接不通顺、ASR 尾音或首音误识别（如尾音被误补全为短语）等问题。从整句语法和语义角度判断，必要时可对衔接处做小幅词语调整，但不得新增原文没有的信息。',
           speaker,
           language,
           hard_merged_text: baseText,
