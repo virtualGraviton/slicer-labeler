@@ -1184,6 +1184,175 @@ body {
   border-top: 1px solid var(--card-border);
 }
 
+
+.merge-modal {
+  max-width: 860px;
+}
+
+.merge-polish-section {
+  padding-top: 2px;
+}
+
+.merge-polish-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.merge-polish-head label {
+  margin-bottom: 0;
+}
+
+.merge-polish-status {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: right;
+}
+
+.merge-polish-status.loading {
+  color: var(--accent);
+}
+
+.merge-polish-status.error {
+  color: var(--danger);
+}
+
+.merge-polish-status.done {
+  color: var(--success);
+}
+
+.merge-source-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.merge-source-toggle {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+}
+
+.merge-source-option {
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 12px;
+  transition: background var(--transition), color var(--transition);
+}
+
+.merge-source-option.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.merge-source-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.merge-polish-explanation {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.merge-polish-explanation strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.merge-polish-explanation p {
+  margin: 0;
+}
+
+.merge-diff-wrap {
+  margin-top: 12px;
+}
+
+.merge-diff-title {
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.merge-diff-box {
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+
+.diff-token {
+  display: inline-block;
+  margin: 0 2px 4px 0;
+  padding: 0 3px;
+  border-radius: 4px;
+}
+
+.diff-equal {
+  color: var(--text-primary);
+}
+
+.diff-delete {
+  background: rgba(225, 29, 72, 0.14);
+  color: #be123c;
+  text-decoration: line-through;
+}
+
+.diff-add {
+  background: rgba(22, 163, 74, 0.16);
+  color: #15803d;
+}
+
+:root[data-theme="dark"] .diff-delete {
+  color: #fda4af;
+}
+
+:root[data-theme="dark"] .diff-add {
+  color: #86efac;
+}
+
+@media (max-width: 560px) {
+  .merge-polish-head,
+  .merge-source-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .merge-polish-status {
+    text-align: left;
+  }
+}
+
 /* Status bar */
 .status-bar {
   position: fixed;

@@ -46,6 +46,13 @@ export async function mergeAudio({ entries, mergedText, speaker, language }) {
   });
 }
 
+
+export async function polishMergeText({ entries, hardMergedText, speaker, language }) {
+  return request('/api/merge/polish', {
+    method: 'POST',
+    body: JSON.stringify({ entries, hardMergedText, speaker, language }),
+  });
+}
 export async function fetchQualityCache() {
   return request('/api/quality/cache');
 }
