@@ -371,6 +371,76 @@ async function analyzeTextRisk(entry, nextEntry) {
   };
 }
 
+
+function parseDeepSeekJsonContent(content) {
+  const raw = String(content || '').trim();
+  if (!raw) throw new Error('DeepSeek returned empty content');
+  try {
+    return JSON.parse(raw);
+  } catch (_) {
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      return JSON.parse(raw.slice(start, end + 1));
+    }
+    throw new Error('DeepSeek returned invalid JSON');
+  }
+}
+
+async function polishMergeTextWithDeepSeek({ entries, hardMergedText, speaker, language }) {
+  const apiKey = readDeepSeekApiKey();
+  if (!apiKey) {
+    throw new Error('未配置 DeepSeek API Key，请在启动服务前设置 DEEPSEEK_API_KEY 环境变量');
+  }
+
+  const cleanEntries = (Array.isArray(entries) ? entries : []).map((entry, index) => ({
+    index: index + 1,
+    speaker: entry?.speaker || speaker || '',
+    language: entry?.language || language || '',
+    text: String(entry?.text || '').trim(),
+  }));
+  const baseText = String(hardMergedText || cleanEntries.map((entry) => entry.text).filter(Boolean).join(' ')).trim();
+  if (!baseText) throw new Error('hardMergedText required');
+
+  const payload = {
+    model: DEEPSEEK_MODEL,
+    thinking: { type: 'disabled' },
+    response_format: { type: 'json_object' },
+    temperature: 0,
+    max_tokens: 900,
+    messages: [
+      {
+        role: 'system',
+        content:
+          '你是语音切片 ASR 文本合并润色助手。你只处理相邻切片合并时产生的文本衔接问题：句尾和下一句句首重复词、重复短语、重复标点、缺失或多余空格，以及符合对应语言语法的基础标点衔接。不要翻译，不要扩写，不要改写事实，不要改变说话风格，不要新增原文没有的信息。必须只输出合法 JSON 对象，不要 Markdown。JSON 字段: polished_text(string), explanation_zh(string)。explanation_zh 必须用中文简要说明做了哪些合并或为什么不需要修改。',
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          task: '请根据 language 的语法润色 hard_merged_text，使它成为自然的合并文本。重点修复切分导致的重复词、重复标点和句首句尾衔接问题。',
+          speaker,
+          language,
+          hard_merged_text: baseText,
+          segments: cleanEntries,
+        }),
+      },
+    ],
+  };
+
+  const data = await postDeepSeekJson(payload, apiKey);
+  const content = data?.choices?.[0]?.message?.content || '';
+  const parsed = parseDeepSeekJsonContent(content);
+  const polishedText = String(parsed.polished_text || parsed.polishedText || '').trim();
+  const explanationZh = String(parsed.explanation_zh || parsed.explanationZh || parsed.reason || '').trim();
+
+  if (!polishedText) throw new Error('DeepSeek did not return polished_text');
+  return {
+    polishedText: polishedText.slice(0, 5000),
+    explanationZh: (explanationZh || '模型未说明具体修改。').slice(0, 1200),
+    model: DEEPSEEK_MODEL,
+  };
+}
+
 async function runQualityCheck(entry, nextEntry) {
   const absAudioPath = resolveProjectPath(entry.wavPath);
   if (!fs.existsSync(absAudioPath)) throw new Error('Audio file not found');
@@ -634,6 +704,29 @@ export function apiMiddleware(req, res, next = () => {}) {
     return;
   }
 
+  // POST /api/merge/polish - polish merged transcript text with DeepSeek
+  if (apiPath === '/api/merge/polish' && req.method === 'POST') {
+    readBody().then(async (body) => {
+      try {
+        const { entries: entriesToPolish, hardMergedText, speaker, language } = JSON.parse(body);
+        if (!Array.isArray(entriesToPolish) || entriesToPolish.length < 2) {
+          json({ error: 'Need at least 2 entries' }, 400);
+          return;
+        }
+
+        const result = await polishMergeTextWithDeepSeek({
+          entries: entriesToPolish,
+          hardMergedText,
+          speaker,
+          language,
+        });
+        json(result);
+      } catch (err) {
+        json({ error: err.message }, 500);
+      }
+    });
+    return;
+  }
   // POST /api/merge - merge audio files
   if (apiPath === '/api/merge' && req.method === 'POST') {
     readBody().then((body) => {
