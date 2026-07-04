@@ -88,8 +88,9 @@ jobs:
           curl -LO "https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl"
           chmod +x kubectl
           REPO_LOWER="${{ github.repository }}"
+          SHORT_SHA="${GITHUB_SHA:0:7}"
           ./kubectl set image statefulset/slicer-labeler \
-            slicer-labeler=${{ env.REGISTRY }}/${REPO_LOWER,,}:sha-${{ github.sha }}
+            slicer-labeler=${{ env.REGISTRY }}/${REPO_LOWER,,}:sha-${SHORT_SHA}
 
       - name: Wait for rollout
         run: |
