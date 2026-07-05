@@ -38,6 +38,7 @@ export default function ItemRow({
   countdownTotalSeconds,
   showCountdown,
   preferPopoverBelow,
+  volume,
   qualityResult,
   qualityLoading,
 }) {
@@ -145,6 +146,7 @@ export default function ItemRow({
           countdownSeconds={countdownSeconds}
           countdownTotalSeconds={countdownTotalSeconds}
           index={index}
+          volume={volume}
         />
 
         <div className="item-actions">

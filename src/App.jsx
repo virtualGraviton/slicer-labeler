@@ -5,6 +5,7 @@ import SplitModal from './components/SplitModal';
 import MergeModal from './components/MergeModal';
 import DeleteConfirmModal from './components/DeleteConfirmModal';
 import SettingsPanel from './components/SettingsPanel';
+import VolumeSlider from './components/VolumeSlider';
 
 const PAGE_SIZE = 10;
 
@@ -60,6 +61,12 @@ function readStoredSettings() {
   };
 }
 
+function readStoredVolume() {
+  const vol = Number(readStoredPreferences().volume);
+  if (Number.isFinite(vol) && vol >= 0 && vol <= 1) return vol;
+  return 1;
+}
+
 function readStoredTheme() {
   const theme = readStoredPreferences().theme;
   if (theme === 'light' || theme === 'dark') return theme;
@@ -106,6 +113,7 @@ export default function App() {
   const [qualityResults, setQualityResults] = useState({});
   const [qualityLoading, setQualityLoading] = useState({});
   const [theme, setTheme] = useState(readStoredTheme);
+  const [volume, setVolume] = useState(readStoredVolume);
 
   // Auto-play state
   const [autoPlayOn, setAutoPlayOn] = useState(false);
@@ -149,8 +157,9 @@ export default function App() {
       currentPage: currentPage + 1,
       settings,
       theme,
+      volume,
     });
-  }, [currentPage, settings, theme]);
+  }, [currentPage, settings, theme, volume]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -703,7 +712,11 @@ export default function App() {
       startAutoPlayFrom(startIdx, 0.5);
       showToast('自动播放已开启', 'info');
     }
-  }, [autoPlayOn, currentPage, PAGE_SIZE, showToast, startAutoPlayFrom, stopAutoPlayByUser]);
+  }, [autoPlayOn, currentPage, showToast, startAutoPlayFrom, stopAutoPlayByUser]);
+
+  const handleVolumeChange = useCallback((value) => {
+    setVolume(clampNumber(value, 1, 0, 1));
+  }, []);
 
   // Cleanup auto-play on unmount
   useEffect(() => {
@@ -1088,6 +1101,7 @@ export default function App() {
               countdownTotalSeconds={countdownIdx === globalIdx ? countdownTotalVal : null}
               qualityResult={qualityResults[entry.wavPath]}
               qualityLoading={!!qualityLoading[entry.wavPath]}
+              volume={volume}
             />
           );
         })}
@@ -1190,6 +1204,9 @@ export default function App() {
           onClose={() => setSettingsOpen(false)}
         />
       )}
+
+      {/* Volume slider */}
+      <VolumeSlider volume={volume} onChange={handleVolumeChange} />
 
       {/* Toast notifications */}
       <div className="status-bar">
