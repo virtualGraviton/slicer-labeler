@@ -17,6 +17,7 @@ export default function WavePlayer({
   countdownSeconds,
   countdownTotalSeconds,
   index,
+  volume,
 }) {
   const canvasRef = useRef(null);
   const audioRef = useRef(null);
@@ -28,6 +29,14 @@ export default function WavePlayer({
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [displayTime, setDisplayTime] = useState(0);
+
+  // ---- Apply global volume ----
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.volume = volume;
+    }
+  }, [volume]);
 
   // ---- Draw waveform (cached) ----
   useEffect(() => {
