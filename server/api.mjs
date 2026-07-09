@@ -258,7 +258,7 @@ function analyzeAudioBoundary(absAudioPath) {
   ]);
   const silence = parseSilenceLog(silenceLog, durationSec);
   const tail = analyzeTailEnergy(absAudioPath, durationSec);
-  const boundarySuspicious = silence.trailingSilenceMs < 80 && tail.tailEnergyHigh;
+  const boundarySuspicious = silence.trailingSilenceMs < 100 && tail.tailEnergyHigh;
   const reasons = [];
 
   if (boundarySuspicious) {
@@ -338,12 +338,12 @@ async function analyzeTextRisk(entry, nextEntry) {
       {
         role: 'system',
         content:
-          '你是语音切片数据质检器。只判断 ASR 文本是否像完整句、是否明显应和下一句合并。必须只输出合法 json 对象，不要输出 Markdown。json 字段: text_complete(boolean), current_text_unfinished(boolean), should_merge_next(boolean), next_is_continuation(boolean), confidence(number 0-1), reason(string)。',
+          '你是语音切片数据质检器。判断 current_text 在语法上是否是一个自闭环的完整句（语法可用，不需要语义上的连续性），以及下一句 next_text 是否是本句的语义延续。核心原则：只要本句没有明显的语法残缺（缺少主语、谓语残缺、句子被截断等），就认为语法闭环。语义上即使与下一句强相关，也不视为风险。必须只输出合法 json 对象，不要输出 Markdown。json 字段: grammatically_complete(boolean), current_text_grammar_broken(boolean), semantically_continuous(boolean), confidence(number 0-1), reason(string)。',
       },
       {
         role: 'user',
         content: JSON.stringify({
-          task: '判断 current_text 是否文本未完成，或是否应与 next_text 合并。只基于文本连续性判断，不要臆测音频。',
+          task: '判断 current_text 是否在语法上是一个自闭环的完整句。不要太关注语义连续性——即使 next_text 语义上紧接本句，只要本句语法完整，就不算风险。只关注明显的语法残缺（句子截断、缺少主语或谓语等）。also note whether the two sentences are semantically continuous.',
           speaker: entry.speaker,
           language: entry.language,
           current_text: entry.text,
@@ -356,15 +356,17 @@ async function analyzeTextRisk(entry, nextEntry) {
   const data = await postDeepSeekJson(payload, apiKey);
   const content = data?.choices?.[0]?.message?.content || '';
   const parsed = JSON.parse(content);
-  const currentTextUnfinished = !!parsed.current_text_unfinished || parsed.text_complete === false;
-  const shouldMergeNext = !!parsed.should_merge_next || !!parsed.next_is_continuation;
+  // New fields: grammatically_complete, current_text_grammar_broken, semantically_continuous
+  // Backward-compatible with old: text_complete, current_text_unfinished, should_merge_next
+  const grammarBroken = !!parsed.current_text_grammar_broken || parsed.grammatically_complete === false;
+  const semanticContinuous = !!parsed.semantically_continuous || !!parsed.should_merge_next || !!parsed.next_is_continuation;
   const confidence = Math.max(0, Math.min(1, Number(parsed.confidence) || 0));
 
   return {
-    textComplete: !currentTextUnfinished,
-    currentTextUnfinished,
-    shouldMergeNext,
-    nextIsContinuation: !!parsed.next_is_continuation,
+    textComplete: parsed.grammatically_complete ?? !grammarBroken,
+    currentTextUnfinished: grammarBroken,
+    shouldMergeNext: semanticContinuous,
+    nextIsContinuation: semanticContinuous,
     confidence,
     reason: String(parsed.reason || '').slice(0, 500),
     raw: parsed,
@@ -447,18 +449,30 @@ async function runQualityCheck(entry, nextEntry) {
 
   const audio = analyzeAudioBoundary(absAudioPath);
   const text = await analyzeTextRisk(entry, nextEntry);
-  const textSuspicious = text.currentTextUnfinished || text.shouldMergeNext;
+  // Grammar broken = always suspicious. Semantic continuity only counts when tail silence < 100ms.
+  const textSuspicious = text.currentTextUnfinished
+    || (text.shouldMergeNext && audio.trailingSilenceMs < 100);
 
   let risk = 'low';
   const reasons = [];
   if (audio.boundarySuspicious && textSuspicious) {
     risk = 'high';
-    reasons.push('音频尾部边界可疑，且文本判断未完成或应合并下一句');
+    reasons.push('音频尾部边界可疑(静音<100ms且能量偏高)，且文本存在语法问题');
   } else if (audio.boundarySuspicious || textSuspicious) {
     risk = 'medium';
-    reasons.push(audio.boundarySuspicious ? '只有音频边界可疑' : '只有文本像没说完或应合并');
+    const parts = [];
+    if (audio.boundarySuspicious) parts.push('音频尾部边界可疑');
+    if (text.currentTextUnfinished) parts.push('文本语法不完整');
+    if (text.shouldMergeNext && audio.trailingSilenceMs < 100) parts.push('语义连续且静音不足');
+    reasons.push(parts.join('，'));
   } else {
-    reasons.push('文本完整，尾部边界未见明显截断风险');
+    const grammarOk = !text.currentTextUnfinished;
+    const hasSemantic = text.shouldMergeNext;
+    if (grammarOk && hasSemantic && audio.trailingSilenceMs >= 100) {
+      reasons.push('文本语法自闭环，语义虽连续但尾部静音充足(>=100ms)，低风险');
+    } else {
+      reasons.push('文本完整，尾部边界未见明显截断风险');
+    }
   }
   reasons.push(...audio.reasons);
   if (text.reason) reasons.push(text.reason);
