@@ -561,7 +561,16 @@ export default function App() {
 
     // Skip low-risk items when the setting is enabled and quality is already cached low
     if (settingsRef.current.skipLowRisk && isLowRisk(cachedQuality)) {
-      scheduleNext(nextGlobalIdx + 1, 0);
+      // Visual feedback before skipping: scroll to item and briefly highlight
+      setAutoPlayIdx(nextGlobalIdx);
+      autoPlayIdxRef.current = nextGlobalIdx;
+      scrollToItem(nextGlobalIdx);
+      highlightItems([nextGlobalIdx], 250);
+      // Micro-delay so React can flush the scroll/highlight before next item
+      countdownTimerRef.current = setTimeout(() => {
+        countdownTimerRef.current = null;
+        scheduleNextRef.current(nextGlobalIdx + 1, 0);
+      }, 80);
       return;
     }
 
@@ -591,8 +600,11 @@ export default function App() {
     if (!gate.audioDone && gate.isPrePlayWait) {
       const gap = getGapAfterIndex(globalIndex);
       if (settingsRef.current.skipLowRisk && isLowRisk(gate.qualityResult)) {
+        // Visual feedback before skipping: ensure scrolled and highlighted
+        scrollToItem(globalIndex);
+        highlightItems([globalIndex], 250);
         delete autoPlayGateRef.current[globalIndex];
-        scheduleNextRef.current(globalIndex + 1, 0);
+        setTimeout(() => scheduleNextRef.current(globalIndex + 1, 0), 80);
         return;
       }
       // Not low risk or skipLowRisk off → start playing now
@@ -628,8 +640,9 @@ export default function App() {
 
     // Skip low-risk items when quality came back during playback
     if (settingsRef.current.skipLowRisk && isLowRisk(gate.qualityResult)) {
+      highlightItems([globalIndex], 200);
       delete autoPlayGateRef.current[globalIndex];
-      scheduleNextRef.current(nextIdx, 0);
+      setTimeout(() => scheduleNextRef.current(nextIdx, 0), 80);
       return;
     }
 
