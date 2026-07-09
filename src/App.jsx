@@ -147,6 +147,7 @@ export default function App() {
   const settingsRef = useRef(readStoredSettings());
   settingsRef.current = settings;
   const scheduleNextRef = useRef(() => {});
+  const handleQualityCheckRef = useRef(() => {});
   const allEntriesRef = useRef([]);
   const qualityInflightRef = useRef({});
 
@@ -570,12 +571,12 @@ export default function App() {
       autoPlayIdxRef.current = nextGlobalIdx;
       setAutoPlayIdx(nextGlobalIdx);
       autoPlayGateRef.current[nextGlobalIdx] = { audioDone: false, qualityDone: false, isPrePlayWait: true };
-      handleQualityCheck(nextGlobalIdx, false, true);
+      handleQualityCheckRef.current(nextGlobalIdx, false, true);
       return;
     }
 
     beginAutoPlayItem(nextGlobalIdx, gapSec, cachedQuality);
-  }, [allEntries, beginAutoPlayItem, clearAutoTimers, clearMediumRiskPrompt, getGapAfterIndex, handleQualityCheck, qualityResults, showMediumRiskPrompt, showToast, stopAutoPlayForRisk]);
+  }, [allEntries, beginAutoPlayItem, clearAutoTimers, clearMediumRiskPrompt, getGapAfterIndex, qualityResults, showMediumRiskPrompt, showToast, stopAutoPlayForRisk]);
   scheduleNextRef.current = scheduleNext;
 
   const continueAutoPlayIfReady = useCallback((globalIndex) => {
@@ -725,6 +726,7 @@ export default function App() {
       });
     }
   }, [continueAutoPlayIfReady, qualityResults, showToast, stopAutoPlayForRisk]);
+  handleQualityCheckRef.current = handleQualityCheck;
 
   const handlePlaybackStart = useCallback((globalIndex) => {
     handleQualityCheck(globalIndex, false, true);
