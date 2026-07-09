@@ -46,6 +46,21 @@ export default function SettingsPanel({ settings, onChange, onClose }) {
           <span className="hint">遇到中风险时等待用户决定的时间，0 表示立即继续</span>
         </div>
 
+        <div className="setting-row">
+          <label>跳过低风险条目</label>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={settings.skipLowRisk || false}
+              onChange={(e) => onChange({ ...settings, skipLowRisk: e.target.checked })}
+            />
+            <span className="toggle-label">
+              {settings.skipLowRisk ? '开启' : '关闭'}
+            </span>
+          </label>
+          <span className="hint">开启后自动播放时直接跳过已检测为低风险的条目</span>
+        </div>
+
         <button className="btn btn-sm" onClick={onClose} style={{ marginTop: 'auto' }}>
           关闭设置
         </button>

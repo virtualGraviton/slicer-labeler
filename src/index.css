@@ -1559,3 +1559,54 @@ body {
     font-size: 12px;
   }
 }
+
+/* Toggle switch */
+.toggle-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.toggle-switch input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 36px;
+  height: 20px;
+  background: var(--card-border);
+  border-radius: 10px;
+  position: relative;
+  cursor: pointer;
+  transition: background var(--transition);
+  flex-shrink: 0;
+}
+
+.toggle-switch input[type="checkbox"]::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform var(--transition);
+}
+
+.toggle-switch input[type="checkbox"]:checked {
+  background: var(--accent);
+}
+
+.toggle-switch input[type="checkbox"]:checked::before {
+  transform: translateX(16px);
+}
+
+.toggle-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.toggle-switch input[type="checkbox"]:checked ~ .toggle-label {
+  color: var(--accent);
+}
