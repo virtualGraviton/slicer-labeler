@@ -13,6 +13,7 @@ const DEFAULT_SETTINGS = {
   gapSeconds: 2,
   pageGapSeconds: 4,
   mediumRiskPauseSeconds: 10,
+  skipLowRisk: false,
 };
 
 const PREFERENCES_STORAGE_KEY = 'slicer-labeler.preferences';
@@ -58,6 +59,7 @@ function readStoredSettings() {
     gapSeconds: clampNumber(settings.gapSeconds, DEFAULT_SETTINGS.gapSeconds, 0.5, 30),
     pageGapSeconds: clampNumber(settings.pageGapSeconds, DEFAULT_SETTINGS.pageGapSeconds, 1, 30),
     mediumRiskPauseSeconds: clampNumber(settings.mediumRiskPauseSeconds, DEFAULT_SETTINGS.mediumRiskPauseSeconds, 0, 120),
+    skipLowRisk: !!(settings.skipLowRisk ?? DEFAULT_SETTINGS.skipLowRisk),
   };
 }
 
@@ -82,6 +84,10 @@ function isHighRisk(result) {
 
 function isMediumRisk(result) {
   return result?.risk === 'medium';
+}
+
+function isLowRisk(result) {
+  return result?.risk === 'low';
 }
 
 function riskLabel(risk) {
@@ -138,6 +144,8 @@ export default function App() {
   const autoPlayEnabledRef = useRef(false);
   const autoPlayIdxRef = useRef(-1);
   const autoPlayGateRef = useRef({});
+  const settingsRef = useRef(readStoredSettings());
+  settingsRef.current = settings;
   const allEntriesRef = useRef([]);
   const qualityInflightRef = useRef({});
 
@@ -549,6 +557,12 @@ export default function App() {
       return;
     }
 
+    // Skip low-risk items when the setting is enabled and quality is already cached low
+    if (settingsRef.current.skipLowRisk && isLowRisk(cachedQuality)) {
+      scheduleNext(nextGlobalIdx + 1, 0);
+      return;
+    }
+
     beginAutoPlayItem(nextGlobalIdx, gapSec, cachedQuality);
   }, [allEntries, beginAutoPlayItem, clearAutoTimers, clearMediumRiskPrompt, getGapAfterIndex, qualityResults, showMediumRiskPrompt, showToast, stopAutoPlayForRisk]);
 
@@ -578,6 +592,13 @@ export default function App() {
         setRiskAlert(null);
         scheduleNext(nextIdx, gap);
       });
+      return;
+    }
+
+    // Skip low-risk items when quality came back during playback
+    if (settingsRef.current.skipLowRisk && isLowRisk(gate.qualityResult)) {
+      delete autoPlayGateRef.current[globalIndex];
+      scheduleNext(nextIdx, 0);
       return;
     }
 
