@@ -146,6 +146,7 @@ export default function App() {
   const autoPlayGateRef = useRef({});
   const settingsRef = useRef(readStoredSettings());
   settingsRef.current = settings;
+  const scheduleNextRef = useRef(() => {});
   const allEntriesRef = useRef([]);
   const qualityInflightRef = useRef({});
 
@@ -575,6 +576,7 @@ export default function App() {
 
     beginAutoPlayItem(nextGlobalIdx, gapSec, cachedQuality);
   }, [allEntries, beginAutoPlayItem, clearAutoTimers, clearMediumRiskPrompt, getGapAfterIndex, handleQualityCheck, qualityResults, showMediumRiskPrompt, showToast, stopAutoPlayForRisk]);
+  scheduleNextRef.current = scheduleNext;
 
   const continueAutoPlayIfReady = useCallback((globalIndex) => {
     if (!autoPlayEnabledRef.current) return;
@@ -589,7 +591,7 @@ export default function App() {
       const gap = getGapAfterIndex(globalIndex);
       if (settingsRef.current.skipLowRisk && isLowRisk(gate.qualityResult)) {
         delete autoPlayGateRef.current[globalIndex];
-        scheduleNext(globalIndex + 1, 0);
+        scheduleNextRef.current(globalIndex + 1, 0);
         return;
       }
       // Not low risk or skipLowRisk off → start playing now
@@ -613,12 +615,12 @@ export default function App() {
       showMediumRiskPrompt(globalIndex, gate.qualityResult, () => {
         if (!autoPlayEnabledRef.current) return;
         delete autoPlayGateRef.current[globalIndex];
-        scheduleNext(nextIdx, gap);
+        scheduleNextRef.current(nextIdx, gap);
       }, () => {
         if (!autoPlayEnabledRef.current) return;
         delete autoPlayGateRef.current[globalIndex];
         setRiskAlert(null);
-        scheduleNext(nextIdx, gap);
+        scheduleNextRef.current(nextIdx, gap);
       });
       return;
     }
@@ -626,13 +628,13 @@ export default function App() {
     // Skip low-risk items when quality came back during playback
     if (settingsRef.current.skipLowRisk && isLowRisk(gate.qualityResult)) {
       delete autoPlayGateRef.current[globalIndex];
-      scheduleNext(nextIdx, 0);
+      scheduleNextRef.current(nextIdx, 0);
       return;
     }
 
     delete autoPlayGateRef.current[globalIndex];
-    scheduleNext(nextIdx, gap);
-  }, [beginAutoPlayItem, getGapAfterIndex, scheduleNext, showMediumRiskPrompt, stopAutoPlayForRisk]);
+    scheduleNextRef.current(nextIdx, gap);
+  }, [beginAutoPlayItem, getGapAfterIndex, showMediumRiskPrompt, stopAutoPlayForRisk]);
 
   // Called when an item's audio ends
   const handleAudioEnded = useCallback((globalIndex) => {
