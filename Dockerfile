@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim AS build
+FROM node:22-bookworm-slim AS build
 
 ARG APP_VERSION=dev
 WORKDIR /app
@@ -8,7 +8,7 @@ COPY . .
 ENV APP_VERSION=${APP_VERSION}
 RUN npm run build
 
-FROM node:20-bookworm-slim
+FROM node:22-bookworm-slim
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
