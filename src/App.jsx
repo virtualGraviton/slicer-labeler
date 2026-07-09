@@ -563,16 +563,44 @@ export default function App() {
       return;
     }
 
+    // When skipLowRisk is on but quality is NOT yet cached, wait for quality
+    // check before deciding whether to play or skip (don't start audio yet)
+    if (settingsRef.current.skipLowRisk && !cachedQuality) {
+      autoPlayIdxRef.current = nextGlobalIdx;
+      setAutoPlayIdx(nextGlobalIdx);
+      autoPlayGateRef.current[nextGlobalIdx] = { audioDone: false, qualityDone: false, isPrePlayWait: true };
+      handleQualityCheck(nextGlobalIdx, false, true);
+      return;
+    }
+
     beginAutoPlayItem(nextGlobalIdx, gapSec, cachedQuality);
-  }, [allEntries, beginAutoPlayItem, clearAutoTimers, clearMediumRiskPrompt, getGapAfterIndex, qualityResults, showMediumRiskPrompt, showToast, stopAutoPlayForRisk]);
+  }, [allEntries, beginAutoPlayItem, clearAutoTimers, clearMediumRiskPrompt, getGapAfterIndex, handleQualityCheck, qualityResults, showMediumRiskPrompt, showToast, stopAutoPlayForRisk]);
 
   const continueAutoPlayIfReady = useCallback((globalIndex) => {
     if (!autoPlayEnabledRef.current) return;
     if (autoPlayIdxRef.current !== globalIndex) return;
 
     const gate = autoPlayGateRef.current[globalIndex];
-    if (!gate?.audioDone || !gate?.qualityDone) return;
+    if (!gate?.qualityDone) return;
 
+    // Pre-play path: quality came back but audio hasn't started yet
+    // (triggered by scheduleNext's skipLowRisk wait-for-quality logic)
+    if (!gate.audioDone && gate.isPrePlayWait) {
+      const gap = getGapAfterIndex(globalIndex);
+      if (settingsRef.current.skipLowRisk && isLowRisk(gate.qualityResult)) {
+        delete autoPlayGateRef.current[globalIndex];
+        scheduleNext(globalIndex + 1, 0);
+        return;
+      }
+      // Not low risk or skipLowRisk off → start playing now
+      beginAutoPlayItem(globalIndex, gap, gate.qualityResult);
+      return;
+    }
+
+    // Audio still playing, quality came back during playback — wait for audio
+    if (!gate.audioDone) return;
+
+    // Normal path: audio finished, quality done → decide next step
     if (isHighRisk(gate.qualityResult)) {
       stopAutoPlayForRisk(globalIndex, gate.qualityResult);
       return;
@@ -604,7 +632,7 @@ export default function App() {
 
     delete autoPlayGateRef.current[globalIndex];
     scheduleNext(nextIdx, gap);
-  }, [getGapAfterIndex, scheduleNext, showMediumRiskPrompt, stopAutoPlayForRisk]);
+  }, [beginAutoPlayItem, getGapAfterIndex, scheduleNext, showMediumRiskPrompt, stopAutoPlayForRisk]);
 
   // Called when an item's audio ends
   const handleAudioEnded = useCallback((globalIndex) => {
