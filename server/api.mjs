@@ -328,6 +328,11 @@ async function analyzeTextRisk(entry, nextEntry) {
     throw new Error('未配置 DeepSeek API Key，请在启动服务前设置 DEEPSEEK_API_KEY 环境变量');
   }
 
+  const key = qualityKey(entry.wavPath);
+  console.log(`[AI质检请求] ${new Date().toISOString()} | wav: ${key} | speaker: ${entry.speaker} | language: ${entry.language}`);
+  console.log(`  current_text: ${entry.text?.slice(0, 200) || ''}`);
+  console.log(`  next_text:    ${nextEntry?.text?.slice(0, 200) || '(无)'}`);
+
   const payload = {
     model: DEEPSEEK_MODEL,
     thinking: { type: 'disabled' },
@@ -362,7 +367,7 @@ async function analyzeTextRisk(entry, nextEntry) {
   const semanticContinuous = !!parsed.semantically_continuous || !!parsed.should_merge_next || !!parsed.next_is_continuation;
   const confidence = Math.max(0, Math.min(1, Number(parsed.confidence) || 0));
 
-  return {
+  const result = {
     textComplete: parsed.grammatically_complete ?? !grammarBroken,
     currentTextUnfinished: grammarBroken,
     shouldMergeNext: semanticContinuous,
@@ -371,6 +376,11 @@ async function analyzeTextRisk(entry, nextEntry) {
     reason: String(parsed.reason || '').slice(0, 500),
     raw: parsed,
   };
+
+  console.log(`[AI质检返回] ${new Date().toISOString()} | wav: ${key} | grammatically_complete: ${parsed.grammatically_complete} | grammar_broken: ${grammarBroken} | semantic_continuous: ${semanticContinuous} | confidence: ${confidence}`);
+  console.log(`  reason: ${result.reason}`);
+
+  return result;
 }
 
 
@@ -401,6 +411,12 @@ async function polishMergeTextWithDeepSeek({ entries, hardMergedText, speaker, l
     language: entry?.language || language || '',
     text: String(entry?.text || '').trim(),
   }));
+
+  console.log(`[AI合并润色请求] ${new Date().toISOString()} | entries: ${cleanEntries.length} | speaker: ${speaker} | language: ${language}`);
+  console.log(`  hard_merged_text: ${String(hardMergedText || '').slice(0, 300)}`);
+  cleanEntries.forEach((ce) => {
+    console.log(`  segment[${ce.index}]: ${ce.text?.slice(0, 150) || ''}`);
+  });
   const baseText = String(hardMergedText || cleanEntries.map((entry) => entry.text).filter(Boolean).join(' ')).trim();
   if (!baseText) throw new Error('hardMergedText required');
 
@@ -436,6 +452,10 @@ async function polishMergeTextWithDeepSeek({ entries, hardMergedText, speaker, l
   const explanationZh = String(parsed.explanation_zh || parsed.explanationZh || parsed.reason || '').trim();
 
   if (!polishedText) throw new Error('DeepSeek did not return polished_text');
+
+  console.log(`[AI合并润色返回] ${new Date().toISOString()} | polished_text: ${polishedText.slice(0, 300)}`);
+  console.log(`  explanation: ${explanationZh?.slice(0, 300) || '(无)'}`);
+
   return {
     polishedText: polishedText.slice(0, 5000),
     explanationZh: (explanationZh || '模型未说明具体修改。').slice(0, 1200),
@@ -541,6 +561,7 @@ export function apiMiddleware(req, res, next = () => {}) {
   // POST /api/quality/check - run audio boundary + text continuity risk check
   if (apiPath === '/api/quality/check' && req.method === 'POST') {
     readBody().then(async (body) => {
+      let key = '';
       try {
         const { entry, nextEntry, force } = JSON.parse(body);
         if (!entry?.wavPath) {
@@ -548,19 +569,23 @@ export function apiMiddleware(req, res, next = () => {}) {
           return;
         }
 
-        const key = qualityKey(entry.wavPath);
+        key = qualityKey(entry.wavPath);
         const cache = readQualityCache();
         const cached = cache.results?.[key];
         if (!force && cached?.status === 'ok') {
+          console.log(`[API质检] ${new Date().toISOString()} | wav: ${key} | 命中缓存, 跳过AI审核`);
           json({ result: { ...cached, wavPath: key, cached: true } });
           return;
         }
 
+        console.log(`[API质检] ${new Date().toISOString()} | wav: ${key} | force: ${!!force} | 开始AI审核...`);
         const result = await runQualityCheck(entry, nextEntry);
         cache.results[key] = { ...result, wavPath: key };
         writeQualityCache(cache);
+        console.log(`[API质检] ${new Date().toISOString()} | wav: ${key} | risk: ${result.risk} | 审核完成`);
         json({ result });
       } catch (err) {
+        console.log(`[API质检] ${new Date().toISOString()} | wav: ${key || '?'} | 审核失败: ${err.message}`);
         json({ error: err.message }, 500);
       }
     });
@@ -728,14 +753,17 @@ export function apiMiddleware(req, res, next = () => {}) {
           return;
         }
 
+        console.log(`[API合并润色] ${new Date().toISOString()} | entries: ${entriesToPolish.length} | 开始AI润色...`);
         const result = await polishMergeTextWithDeepSeek({
           entries: entriesToPolish,
           hardMergedText,
           speaker,
           language,
         });
+        console.log(`[API合并润色] ${new Date().toISOString()} | 润色完成`);
         json(result);
       } catch (err) {
+        console.log(`[API合并润色] ${new Date().toISOString()} | 润色失败: ${err.message}`);
         json({ error: err.message }, 500);
       }
     });
