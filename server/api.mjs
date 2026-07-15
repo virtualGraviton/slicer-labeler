@@ -247,7 +247,11 @@ function analyzeTailEnergy(absAudioPath, durationSec) {
 }
 
 function analyzeAudioBoundary(absAudioPath) {
+  const t0 = Date.now();
   const durationSec = getAudioDuration(absAudioPath);
+  console.log(`[音频分析] ffprobe取时长: ${Date.now() - t0}ms | durationSec: ${durationSec.toFixed(3)}`);
+
+  const t1 = Date.now();
   const silenceLog = runTool('ffmpeg', [
     '-hide_banner',
     '-nostats',
@@ -256,8 +260,12 @@ function analyzeAudioBoundary(absAudioPath) {
     '-f', 'null',
     '-',
   ]);
+  console.log(`[音频分析] silencedetect: ${Date.now() - t1}ms`);
   const silence = parseSilenceLog(silenceLog, durationSec);
+
+  const t2 = Date.now();
   const tail = analyzeTailEnergy(absAudioPath, durationSec);
+  console.log(`[音频分析] volumedetect: ${Date.now() - t2}ms`);
   const boundarySuspicious = silence.trailingSilenceMs < 100 && tail.tailEnergyHigh;
   const reasons = [];
 
@@ -268,6 +276,7 @@ function analyzeAudioBoundary(absAudioPath) {
     reasons.push(`句首停顿较短 (${silence.leadingSilenceMs}ms)`);
   }
 
+  console.log(`[音频分析] 总耗时: ${Date.now() - t0}ms`);
   return {
     durationSec: Number(durationSec.toFixed(3)),
     ...silence,
