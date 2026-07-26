@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { checkQuality, deleteEntry as deleteEntryApi, fetchList, fetchQualityCache, saveList } from './utils/api';
+import { checkQuality, deleteEntry as deleteEntryApi, fetchEntries, fetchQualityCache, saveEntries } from './utils/api';
 import ItemRow from './components/ItemRow';
 import SplitModal from './components/SplitModal';
 import MergeModal from './components/MergeModal';
@@ -100,7 +100,7 @@ function qualitySignature(entry, nextEntry) {
   return `${entry?.wavPath || ''}\n${entry?.text || ''}\n---NEXT---\n${nextEntry?.wavPath || ''}\n${nextEntry?.text || ''}`;
 }
 
-export default function App() {
+export default function App({ datasetId }) {
   const [allEntries, setAllEntries] = useState([]);
   const [currentPage, setCurrentPage] = useState(readStoredCurrentPage);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -202,12 +202,12 @@ export default function App() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const { entries } = await fetchList();
-      allEntriesRef.current = entries;
-      setAllEntries(entries);
-      setCurrentPage((page) => Math.min(Math.max(page, 0), Math.max(0, Math.ceil(entries.length / PAGE_SIZE) - 1)));
+      const data = await fetchEntries(datasetId, 1, 100000);
+      allEntriesRef.current = data.data || data.entries || [];
+      setAllEntries(allEntriesRef.current);
+      setCurrentPage((page) => Math.min(Math.max(page, 0), Math.max(0, Math.ceil(allEntriesRef.current.length / PAGE_SIZE) - 1)));
       try {
-        const { results } = await fetchQualityCache();
+        const { results } = await fetchQualityCache(datasetId);
         setQualityResults(results || {});
       } catch (_) {
         setQualityResults({});
@@ -261,7 +261,7 @@ export default function App() {
   // Save
   const handleSave = useCallback(async () => {
     try {
-      await saveList(allEntries);
+      await saveEntries(datasetId, allEntries);
       const orig = {};
       allEntries.forEach((e, i) => { orig[i] = e.text; });
       originalTextsRef.current = orig;
@@ -835,7 +835,7 @@ export default function App() {
       return updated;
     });
 
-    saveList(next).then(() => {
+    saveEntries(datasetId, next).then(() => {
         const orig = {};
         next.forEach((e, i) => { orig[i] = e.text; });
         originalTextsRef.current = orig;
@@ -898,7 +898,7 @@ export default function App() {
       return updated;
     });
 
-    saveList(next).then(() => {
+    saveEntries(datasetId, next).then(() => {
         const orig = {};
         next.forEach((e, i) => { orig[i] = e.text; });
         originalTextsRef.current = orig;
@@ -935,7 +935,7 @@ export default function App() {
         setStopSignal({ nonce: Date.now(), targetIdx: deleteIndex });
       }
 
-      await deleteEntryApi({ deleteEntry, entries: next });
+      await deleteEntryApi(deleteEntry.id);
 
       allEntriesRef.current = next;
       setAllEntries(next);
