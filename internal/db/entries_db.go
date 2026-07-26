@@ -122,6 +122,19 @@ func (s *EntryStore) Delete(ctx context.Context, id int64) (bool, error) {
 	return result.RowsAffected > 0, nil
 }
 
+// FindByWavPath finds the first entry matching the given wav_path (basename).
+func (s *EntryStore) FindByWavPath(ctx context.Context, wavPath string) (*Entry, error) {
+	var e Entry
+	err := s.db.WithContext(ctx).Where("wav_path = ?", wavPath).First(&e).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find entry by wav path: %w", err)
+	}
+	return &e, nil
+}
+
 func (s *EntryStore) GetNext(ctx context.Context, entryID, datasetID int64) (*Entry, error) {
 	var e Entry
 	err := s.db.WithContext(ctx).

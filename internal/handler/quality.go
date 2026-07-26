@@ -14,17 +14,23 @@ import (
 type QualityHandler struct {
 	entryStore   *db.EntryStore
 	qualityStore *db.QualityStore
+	datasetStore *db.DatasetStore
+	modelStore   *db.ModelStore
 	qualitySvc   *service.QualityService
 }
 
 func NewQualityHandler(
 	entryStore *db.EntryStore,
 	qualityStore *db.QualityStore,
+	datasetStore *db.DatasetStore,
+	modelStore *db.ModelStore,
 	qualitySvc *service.QualityService,
 ) *QualityHandler {
 	return &QualityHandler{
 		entryStore:   entryStore,
 		qualityStore: qualityStore,
+		datasetStore: datasetStore,
+		modelStore:   modelStore,
 		qualitySvc:   qualitySvc,
 	}
 }
@@ -46,10 +52,14 @@ func (h *QualityHandler) Check(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "entry not found"})
 	}
 
-	// Get next entry for semantic analysis
+	modelName, datasetName, err := resolveNames(c.Request().Context(), h.datasetStore, h.modelStore, entry.DatasetID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
 	nextEntry, _ := h.entryStore.GetNext(c.Request().Context(), id, entry.DatasetID)
 
-	result, err := h.qualitySvc.RunQualityCheck(c.Request().Context(), entry, nextEntry, req.Force)
+	result, err := h.qualitySvc.RunQualityCheck(c.Request().Context(), entry, nextEntry, modelName, datasetName, req.Force)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -68,7 +78,6 @@ func (h *QualityHandler) Cache(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
-	// Filter valid results (status == ok)
 	valid := make([]db.QualityResult, 0)
 	for _, r := range results {
 		if r.Status == "ok" {
@@ -85,7 +94,11 @@ func (h *QualityHandler) BatchCheck(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid datasetId"})
 	}
 
-	// Get all entries in dataset
+	modelName, datasetName, err := resolveNames(c.Request().Context(), h.datasetStore, h.modelStore, datasetID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
 	entries, _, err := h.entryStore.ListByDataset(c.Request().Context(), datasetID, 1, 10000)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -99,7 +112,7 @@ func (h *QualityHandler) BatchCheck(c echo.Context) error {
 			nextEntry = &entries[i+1]
 		}
 
-		_, err := h.qualitySvc.RunQualityCheck(c.Request().Context(), &entry, nextEntry, false)
+		_, err := h.qualitySvc.RunQualityCheck(c.Request().Context(), &entry, nextEntry, modelName, datasetName, false)
 		if err != nil {
 			failed++
 			continue

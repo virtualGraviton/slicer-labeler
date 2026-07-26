@@ -30,7 +30,9 @@ func NewQualityService(
 }
 
 // RunQualityCheck performs a full quality check: audio analysis + AI text risk + risk grading.
-func (s *QualityService) RunQualityCheck(ctx context.Context, entry *db.Entry, nextEntry *db.Entry, force bool) (*db.QualityResult, error) {
+func (s *QualityService) RunQualityCheck(ctx context.Context, entry *db.Entry, nextEntry *db.Entry,
+	modelName, datasetName string, force bool,
+) (*db.QualityResult, error) {
 	// Check cache
 	if !force {
 		cached, err := s.qualityStore.GetByEntryID(ctx, entry.ID)
@@ -39,14 +41,8 @@ func (s *QualityService) RunQualityCheck(ctx context.Context, entry *db.Entry, n
 		}
 	}
 
-	// Resolve audio path
-	absPath, err := s.audio.ResolvePath(entry.WavPath)
-	if err != nil {
-		return nil, fmt.Errorf("resolve audio path: %w", err)
-	}
-
-	// Run audio analysis
-	audioInfo, err := s.audio.AnalyzeBoundary(absPath)
+	// Run audio analysis from object storage (download → pipe → ffmpeg)
+	audioInfo, err := s.audio.AnalyzeBoundary(ctx, modelName, datasetName, entry.WavPath)
 	if err != nil {
 		return nil, fmt.Errorf("audio analysis: %w", err)
 	}

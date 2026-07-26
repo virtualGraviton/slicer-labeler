@@ -1,11 +1,13 @@
 package service
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -25,82 +27,35 @@ type AudioInfo struct {
 	Reasons            []string
 }
 
+// AudioService performs ffmpeg-based audio analysis/editing on byte streams.
 type AudioService struct {
-	dataDir string
+	storage *StorageService
 }
 
-func NewAudioService(dataDir string) *AudioService {
-	return &AudioService{dataDir: dataDir}
+func NewAudioService(storage *StorageService) *AudioService {
+	return &AudioService{storage: storage}
 }
 
-func (s *AudioService) DataDir() string {
-	return s.dataDir
-}
+// --- Analysis (pure in-memory via pipe) ---
 
-func (s *AudioService) ResolvePath(relPath string) (string, error) {
-	absPath := filepath.Join(s.dataDir, relPath)
-	absPath = filepath.Clean(absPath)
-
-	// Security: ensure path is within dataDir
-	dataDirAbs, _ := filepath.Abs(s.dataDir)
-	absCheck, _ := filepath.Abs(absPath)
-	if !strings.HasPrefix(absCheck, dataDirAbs) {
-		return "", fmt.Errorf("path outside data directory")
-	}
-	return absPath, nil
-}
-
-// GetDuration returns audio duration in seconds.
-func (s *AudioService) GetDuration(absPath string) (float64, error) {
-	// Try ffprobe first
-	out, err := exec.Command("ffprobe",
-		"-v", "error",
-		"-show_entries", "format=duration",
-		"-of", "default=noprint_wrappers=1:nokey=1",
-		absPath,
-	).Output()
-	if err == nil {
-		dur, parseErr := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
-		if parseErr == nil && math.IsInf(dur, 0) == false && dur > 0 {
-			return dur, nil
-		}
+// AnalyzeBoundary downloads audio from storage and runs silence + energy analysis fully in memory.
+func (s *AudioService) AnalyzeBoundary(ctx context.Context, modelName, datasetName, wavPath string) (*AudioInfo, error) {
+	data, err := s.storage.DownloadBytes(ctx, modelName, datasetName, wavPath)
+	if err != nil {
+		return nil, fmt.Errorf("download: %w", err)
 	}
 
-	// Fallback: parse from filename pattern _XXXXXXXXXX_XXXXXXXXXX.wav
-	return durationFromFilename(absPath), nil
-}
-
-func durationFromFilename(absPath string) float64 {
-	name := filepath.Base(absPath)
-	re := regexp.MustCompile(`_(\d{10})_(\d{10})\.wav$`)
-	matches := re.FindStringSubmatch(name)
-	if len(matches) != 3 {
-		return 0
-	}
-	start, _ := strconv.Atoi(matches[1])
-	end, _ := strconv.Atoi(matches[2])
-	return math.Max(0, float64(end-start)/32000)
-}
-
-type silenceResult struct {
-	LeadingSilenceMs  int
-	TrailingSilenceMs int
-	SilenceEvents     int
-}
-
-// AnalyzeBoundary runs silencedetect and volumedetect to check audio boundaries.
-func (s *AudioService) AnalyzeBoundary(absPath string) (*AudioInfo, error) {
-	durationSec, err := s.GetDuration(absPath)
+	durationSec, err := getDurationFromBytes(data, wavPath)
 	if err != nil {
 		durationSec = 0
 	}
 
-	silence, err := s.parseSilence(absPath, durationSec)
+	silence, err := parseSilenceBytes(data, durationSec)
 	if err != nil {
 		return nil, fmt.Errorf("silence analysis: %w", err)
 	}
 
-	tail, err := s.analyzeTailEnergy(absPath, durationSec)
+	tail, err := analyzeTailEnergyBytes(data, durationSec)
 	if err != nil {
 		return nil, fmt.Errorf("tail energy analysis: %w", err)
 	}
@@ -116,7 +71,6 @@ func (s *AudioService) AnalyzeBoundary(absPath string) (*AudioInfo, error) {
 		TailEnergyHigh:    tail.energyHigh,
 	}
 
-	// Determine boundary suspiciousness
 	info.BoundarySuspicious = silence.TrailingSilenceMs < 100 && tail.energyHigh
 
 	var reasons []string
@@ -131,13 +85,109 @@ func (s *AudioService) AnalyzeBoundary(absPath string) (*AudioInfo, error) {
 	return info, nil
 }
 
-func (s *AudioService) parseSilence(absPath string, durationSec float64) (*silenceResult, error) {
-	out, err := exec.Command("ffmpeg",
-		"-hide_banner", "-nostats",
-		"-i", absPath,
+// --- Split: download → pipe → upload two WAVs ---
+
+// SplitAndUpload downloads, splits at splitTime, uploads both parts, returns their storage keys.
+func (s *AudioService) SplitAndUpload(ctx context.Context, modelName, datasetName string,
+	wavPath, firstBasename, secondBasename string, splitTime float64,
+) (firstKey, secondKey string, err error) {
+	data, err := s.storage.DownloadBytes(ctx, modelName, datasetName, wavPath)
+	if err != nil {
+		return "", "", fmt.Errorf("download: %w", err)
+	}
+
+	firstBytes, secondBytes, err := splitBytes(data, splitTime)
+	if err != nil {
+		return "", "", err
+	}
+
+	firstKey, err = s.storage.UploadBytes(ctx, modelName, datasetName, firstBasename+".wav", firstBytes)
+	if err != nil {
+		return "", "", fmt.Errorf("upload first part: %w", err)
+	}
+	secondKey, err = s.storage.UploadBytes(ctx, modelName, datasetName, secondBasename+".wav", secondBytes)
+	if err != nil {
+		return "", "", fmt.Errorf("upload second part: %w", err)
+	}
+
+	return firstKey, secondKey, nil
+}
+
+// --- Merge: download to temp → ffmpeg concat → upload ---
+
+// MergeAndUpload downloads multiple WAVs, concat-merges, uploads result, cleans up temp.
+func (s *AudioService) MergeAndUpload(ctx context.Context, modelName, datasetName string,
+	wavPaths []string, mergedBasename string,
+) (mergedKey string, err error) {
+	// Download all inputs to temp files (required by ffmpeg concat demuxer)
+	tmpDir, err := os.MkdirTemp("", "slicer-merge-")
+	if err != nil {
+		return "", fmt.Errorf("create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	var tmpPaths []string
+	for i, wp := range wavPaths {
+		data, err := s.storage.DownloadBytes(ctx, modelName, datasetName, wp)
+		if err != nil {
+			return "", fmt.Errorf("download %s: %w", wp, err)
+		}
+		tmpPath := fmt.Sprintf("%s/in_%d.wav", tmpDir, i)
+		if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+			return "", fmt.Errorf("write temp: %w", err)
+		}
+		tmpPaths = append(tmpPaths, tmpPath)
+	}
+
+	// Write concat list
+	concatPath := tmpDir + "/concat.txt"
+	var lines []string
+	for _, p := range tmpPaths {
+		lines = append(lines, fmt.Sprintf("file '%s'", strings.ReplaceAll(p, "\\", "/")))
+	}
+	if err := os.WriteFile(concatPath, []byte(strings.Join(lines, "\n")), 0644); err != nil {
+		return "", fmt.Errorf("write concat list: %w", err)
+	}
+
+	// Run ffmpeg concat
+	outPath := tmpDir + "/merged.wav"
+	cmd := exec.Command("ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concatPath, "-c", "copy", outPath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("concat merge: %s", string(out))
+	}
+
+	mergedBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		return "", fmt.Errorf("read merged output: %w", err)
+	}
+
+	return s.storage.UploadBytes(ctx, modelName, datasetName, mergedBasename+".wav", mergedBytes)
+}
+
+// --- Low-level in-memory ffmpeg operations ---
+
+func getDurationFromBytes(data []byte, wavPath string) (float64, error) {
+	cmd := exec.Command("ffprobe", "-v", "error", "-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1", "pipe:0")
+	cmd.Stdin = bytes.NewReader(data)
+	out, err := cmd.Output()
+	if err == nil {
+		dur, parseErr := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+		if parseErr == nil && !math.IsInf(dur, 0) && dur > 0 {
+			return dur, nil
+		}
+	}
+	// Fallback to filename-based estimation
+	return durationFromFilename(wavPath), nil
+}
+
+func parseSilenceBytes(data []byte, durationSec float64) (*silenceResult, error) {
+	cmd := exec.Command("ffmpeg", "-hide_banner", "-nostats",
+		"-i", "pipe:0",
 		"-af", "silencedetect=noise=-35dB:d=0.02",
-		"-f", "null", "-",
-	).CombinedOutput()
+		"-f", "null", "-")
+	cmd.Stdin = bytes.NewReader(data)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("silencedetect: %s", string(out))
 	}
@@ -148,7 +198,6 @@ func (s *AudioService) parseSilence(absPath string, durationSec float64) (*silen
 
 	result := &silenceResult{SilenceEvents: len(starts)}
 
-	// Leading silence
 	if len(starts) > 0 && starts[0] <= 0.03 {
 		for _, e := range ends {
 			if e.end >= starts[0] {
@@ -158,7 +207,6 @@ func (s *AudioService) parseSilence(absPath string, durationSec float64) (*silen
 		}
 	}
 
-	// Trailing silence
 	if len(starts) > 0 {
 		lastStart := starts[len(starts)-1]
 		var endAfter *silenceEnd
@@ -173,56 +221,22 @@ func (s *AudioService) parseSilence(absPath string, durationSec float64) (*silen
 			result.TrailingSilenceMs = int(math.Round(endAfter.duration * 1000))
 		}
 	}
-
 	return result, nil
 }
 
-func parseSilenceStarts(log string) []float64 {
-	re := regexp.MustCompile(`silence_start:\s*([\d.]+)`)
-	var starts []float64
-	for _, m := range re.FindAllStringSubmatch(log, -1) {
-		v, _ := strconv.ParseFloat(m[1], 64)
-		starts = append(starts, v)
-	}
-	return starts
-}
-
-type silenceEnd struct {
-	end      float64
-	duration float64
-}
-
-func parseSilenceEnds(log string) []silenceEnd {
-	re := regexp.MustCompile(`silence_end:\s*([\d.]+)\s*\|\s*silence_duration:\s*([\d.]+)`)
-	var ends []silenceEnd
-	for _, m := range re.FindAllStringSubmatch(log, -1) {
-		end, _ := strconv.ParseFloat(m[1], 64)
-		dur, _ := strconv.ParseFloat(m[2], 64)
-		ends = append(ends, silenceEnd{end: end, duration: dur})
-	}
-	return ends
-}
-
-type tailEnergyResult struct {
-	windowMs   int
-	meanDb     *float64
-	maxDb      *float64
-	energyHigh bool
-}
-
-func (s *AudioService) analyzeTailEnergy(absPath string, durationSec float64) (*tailEnergyResult, error) {
+func analyzeTailEnergyBytes(data []byte, durationSec float64) (*tailEnergyResult, error) {
 	tailSec := math.Min(0.12, math.Max(0.03, durationSec))
 	if tailSec < 0.03 {
 		tailSec = 0.12
 	}
 
-	out, err := exec.Command("ffmpeg",
-		"-hide_banner", "-nostats",
+	cmd := exec.Command("ffmpeg", "-hide_banner", "-nostats",
 		"-sseof", fmt.Sprintf("-%0.3f", tailSec),
-		"-i", absPath,
+		"-i", "pipe:0",
 		"-af", "volumedetect",
-		"-f", "null", "-",
-	).CombinedOutput()
+		"-f", "null", "-")
+	cmd.Stdin = bytes.NewReader(data)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("volumedetect: %s", string(out))
 	}
@@ -246,43 +260,52 @@ func (s *AudioService) analyzeTailEnergy(absPath string, durationSec float64) (*
 	return result, nil
 }
 
-// Split splits an audio file at the given time point.
-func (s *AudioService) Split(absPath, dir string, splitTime float64, firstBasename, secondBasename string) (string, string, error) {
-	firstPath := filepath.Join(dir, firstBasename+".wav")
-	secondPath := filepath.Join(dir, secondBasename+".wav")
-
-	cmd1 := exec.Command("ffmpeg", "-y", "-i", absPath, "-t", fmt.Sprintf("%f", splitTime), "-c", "copy", firstPath)
+func splitBytes(data []byte, splitTime float64) (first []byte, second []byte, err error) {
+	// First part
+	cmd1 := exec.Command("ffmpeg", "-y", "-i", "pipe:0", "-t", fmt.Sprintf("%f", splitTime), "-f", "wav", "pipe:1")
+	cmd1.Stdin = bytes.NewReader(data)
+	var buf1 bytes.Buffer
+	cmd1.Stdout = &buf1
 	if out, err := cmd1.CombinedOutput(); err != nil {
-		return "", "", fmt.Errorf("split first part: %s", string(out))
+		// stderr on error
+		return nil, nil, fmt.Errorf("split first part: %s", string(out))
+	}
+	first, err = io.ReadAll(&buf1)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read first part: %w", err)
 	}
 
-	cmd2 := exec.Command("ffmpeg", "-y", "-i", absPath, "-ss", fmt.Sprintf("%f", splitTime), "-c", "copy", secondPath)
+	// Second part
+	cmd2 := exec.Command("ffmpeg", "-y", "-i", "pipe:0", "-ss", fmt.Sprintf("%f", splitTime), "-f", "wav", "pipe:1")
+	cmd2.Stdin = bytes.NewReader(data)
+	var buf2 bytes.Buffer
+	cmd2.Stdout = &buf2
 	if out, err := cmd2.CombinedOutput(); err != nil {
-		return "", "", fmt.Errorf("split second part: %s", string(out))
+		return nil, nil, fmt.Errorf("split second part: %s", string(out))
+	}
+	second, err = io.ReadAll(&buf2)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read second part: %w", err)
 	}
 
-	return firstPath, secondPath, nil
+	return first, second, nil
 }
 
-// Merge merges multiple audio files using concat.
-func (s *AudioService) Merge(inputPaths []string, outputPath string) error {
-	// Write concat list file
-	concatFile := filepath.Join(filepath.Dir(outputPath), "_concat_temp.txt")
-	var lines []string
-	for _, p := range inputPaths {
-		lines = append(lines, fmt.Sprintf("file '%s'", strings.ReplaceAll(p, "\\", "/")))
-	}
-	if err := os.WriteFile(concatFile, []byte(strings.Join(lines, "\n")), 0644); err != nil {
-		return fmt.Errorf("write concat file: %w", err)
-	}
-	defer os.Remove(concatFile)
+// --- Pure text helpers (no filesystem) ---
 
-	cmd := exec.Command("ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concatFile, "-c", "copy", outputPath)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("concat merge: %s", string(out))
+func durationFromFilename(absPath string) float64 {
+	name := absPath
+	if idx := strings.LastIndex(name, "/"); idx >= 0 {
+		name = name[idx+1:]
 	}
-
-	return nil
+	re := regexp.MustCompile(`_(\d{10})_(\d{10})\.wav$`)
+	matches := re.FindStringSubmatch(name)
+	if len(matches) != 3 {
+		return 0
+	}
+	start, _ := strconv.Atoi(matches[1])
+	end, _ := strconv.Atoi(matches[2])
+	return math.Max(0, float64(end-start)/32000)
 }
 
 // ParseFilename extracts components from a slicer filename.
@@ -294,4 +317,45 @@ func ParseFilename(basename string) (bvid, p, ch, date, timePart, start, end str
 		return "", "", "", "", "", "", "", false
 	}
 	return matches[1], matches[2], matches[3], matches[4], matches[5], matches[6], matches[7], true
+}
+
+// --- Internal types ---
+
+type silenceResult struct {
+	LeadingSilenceMs  int
+	TrailingSilenceMs int
+	SilenceEvents     int
+}
+
+type silenceEnd struct {
+	end      float64
+	duration float64
+}
+
+type tailEnergyResult struct {
+	windowMs   int
+	meanDb     *float64
+	maxDb      *float64
+	energyHigh bool
+}
+
+func parseSilenceStarts(log string) []float64 {
+	re := regexp.MustCompile(`silence_start:\s*([\d.]+)`)
+	var starts []float64
+	for _, m := range re.FindAllStringSubmatch(log, -1) {
+		v, _ := strconv.ParseFloat(m[1], 64)
+		starts = append(starts, v)
+	}
+	return starts
+}
+
+func parseSilenceEnds(log string) []silenceEnd {
+	re := regexp.MustCompile(`silence_end:\s*([\d.]+)\s*\|\s*silence_duration:\s*([\d.]+)`)
+	var ends []silenceEnd
+	for _, m := range re.FindAllStringSubmatch(log, -1) {
+		end, _ := strconv.ParseFloat(m[1], 64)
+		dur, _ := strconv.ParseFloat(m[2], 64)
+		ends = append(ends, silenceEnd{end: end, duration: dur})
+	}
+	return ends
 }

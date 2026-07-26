@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"log"
+
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 
@@ -18,8 +20,11 @@ func RegisterRoutes(e *echo.Echo, gormDB *gorm.DB, cfg *config.Config) {
 	qualityStore := db.NewQualityStore(gormDB)
 
 	// Services
-	audioSvc := service.NewAudioService(cfg.AudioDataDir)
-	storageSvc := service.NewStorageService(cfg.StorageEndpoint, cfg.StorageBucket, cfg.StorageAccessKey, cfg.StorageSecretKey, cfg.StoragePrefix)
+	storageSvc, err := service.NewStorageService(cfg.StorageEndpoint, cfg.StorageBucket, cfg.StorageAccessKey, cfg.StorageSecretKey, cfg.StoragePrefix)
+	if err != nil {
+		log.Fatalf("Failed to init storage: %v", err)
+	}
+	audioSvc := service.NewAudioService(storageSvc)
 	deepseekSvc := service.NewDeepSeekService(cfg.DeepSeekAPIKey, cfg.DeepSeekAPIURL, cfg.DeepSeekModel)
 	qualitySvc := service.NewQualityService(audioSvc, deepseekSvc, qualityStore, entryStore)
 
@@ -29,9 +34,9 @@ func RegisterRoutes(e *echo.Echo, gormDB *gorm.DB, cfg *config.Config) {
 	datasetH := NewDatasetHandler(datasetStore)
 	entryH := NewEntryHandler(entryStore, qualityStore)
 	audioH := NewAudioHandler(entryStore, datasetStore, modelStore, storageSvc)
-	splitH := NewSplitHandler(entryStore, audioSvc)
-	mergeH := NewMergeHandler(entryStore, audioSvc, deepseekSvc)
-	qualityH := NewQualityHandler(entryStore, qualityStore, qualitySvc)
+	splitH := NewSplitHandler(entryStore, datasetStore, modelStore, audioSvc)
+	mergeH := NewMergeHandler(entryStore, datasetStore, modelStore, audioSvc, deepseekSvc)
+	qualityH := NewQualityHandler(entryStore, qualityStore, datasetStore, modelStore, qualitySvc)
 
 	api := e.Group("/api")
 

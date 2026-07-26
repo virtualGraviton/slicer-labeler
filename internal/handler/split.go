@@ -15,12 +15,14 @@ import (
 )
 
 type SplitHandler struct {
-	entryStore *db.EntryStore
-	audio      *service.AudioService
+	entryStore   *db.EntryStore
+	datasetStore *db.DatasetStore
+	modelStore   *db.ModelStore
+	audio        *service.AudioService
 }
 
-func NewSplitHandler(entryStore *db.EntryStore, audio *service.AudioService) *SplitHandler {
-	return &SplitHandler{entryStore: entryStore, audio: audio}
+func NewSplitHandler(entryStore *db.EntryStore, datasetStore *db.DatasetStore, modelStore *db.ModelStore, audio *service.AudioService) *SplitHandler {
+	return &SplitHandler{entryStore: entryStore, datasetStore: datasetStore, modelStore: modelStore, audio: audio}
 }
 
 func (h *SplitHandler) Split(c echo.Context) error {
@@ -34,7 +36,9 @@ func (h *SplitHandler) Split(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
-	entry, err := h.entryStore.GetByID(c.Request().Context(), id)
+	ctx := c.Request().Context()
+
+	entry, err := h.entryStore.GetByID(ctx, id)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -42,12 +46,12 @@ func (h *SplitHandler) Split(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "entry not found"})
 	}
 
-	absPath, err := h.audio.ResolvePath(entry.WavPath)
+	modelName, datasetName, err := resolveNames(ctx, h.datasetStore, h.modelStore, entry.DatasetID)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
-	// Parse filename
+	// Parse filename to compute new filenames
 	basename := filepath.Base(entry.WavPath)
 	basename = strings.TrimSuffix(basename, filepath.Ext(basename))
 
@@ -69,18 +73,11 @@ func (h *SplitHandler) Split(c echo.Context) error {
 	firstBasename := fmt.Sprintf("vocal_%s-p%s_ch%s_%s_%s.m4a_10.wav_%010d_%010d", bvid, p, ch, date, timePart, firstStart, firstEnd)
 	secondBasename := fmt.Sprintf("vocal_%s-p%s_ch%s_%s_%s.m4a_10.wav_%010d_%010d", bvid, p, ch, date, timePart, secondStart, secondEnd)
 
-	outputDir := filepath.Dir(absPath)
-	firstPath, secondPath, err := h.audio.Split(absPath, outputDir, req.SplitTime, firstBasename, secondBasename)
+	firstKey, secondKey, err := h.audio.SplitAndUpload(ctx, modelName, datasetName, entry.WavPath,
+		firstBasename, secondBasename, req.SplitTime)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
-
-	// Compute relative paths from data dir
-	dataDir := strings.TrimRight(h.audio.DataDir(), "/")
-	firstRel := strings.TrimPrefix(strings.ReplaceAll(firstPath, "\\", "/"), dataDir)
-	firstRel = strings.TrimPrefix(firstRel, "/")
-	secondRel := strings.TrimPrefix(strings.ReplaceAll(secondPath, "\\", "/"), dataDir)
-	secondRel = strings.TrimPrefix(secondRel, "/")
 
 	// Split text
 	text1 := strings.TrimSpace(req.Text[:req.SplitTextIndex])
@@ -89,13 +86,13 @@ func (h *SplitHandler) Split(c echo.Context) error {
 	resp := model.SplitResponse{
 		Success: true,
 		First: model.EntryInput{
-			WavPath:  firstRel,
+			WavPath:  firstKey,
 			Speaker:  req.Speaker,
 			Language: req.Language,
 			Text:     text1,
 		},
 		Second: model.EntryInput{
-			WavPath:  secondRel,
+			WavPath:  secondKey,
 			Speaker:  req.Speaker,
 			Language: req.Language,
 			Text:     text2,

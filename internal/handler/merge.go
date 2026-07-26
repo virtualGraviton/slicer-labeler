@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -14,13 +15,15 @@ import (
 )
 
 type MergeHandler struct {
-	entryStore *db.EntryStore
-	audio      *service.AudioService
-	deepseek   *service.DeepSeekService
+	entryStore   *db.EntryStore
+	datasetStore *db.DatasetStore
+	modelStore   *db.ModelStore
+	audio        *service.AudioService
+	deepseek     *service.DeepSeekService
 }
 
-func NewMergeHandler(entryStore *db.EntryStore, audio *service.AudioService, deepseek *service.DeepSeekService) *MergeHandler {
-	return &MergeHandler{entryStore: entryStore, audio: audio, deepseek: deepseek}
+func NewMergeHandler(entryStore *db.EntryStore, datasetStore *db.DatasetStore, modelStore *db.ModelStore, audio *service.AudioService, deepseek *service.DeepSeekService) *MergeHandler {
+	return &MergeHandler{entryStore: entryStore, datasetStore: datasetStore, modelStore: modelStore, audio: audio, deepseek: deepseek}
 }
 
 func (h *MergeHandler) Merge(c echo.Context) error {
@@ -30,6 +33,14 @@ func (h *MergeHandler) Merge(c echo.Context) error {
 	}
 	if len(req.Entries) < 2 {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Need at least 2 entries"})
+	}
+
+	ctx := c.Request().Context()
+
+	// Resolve model/dataset from the first entry (look up by wav path)
+	modelName, datasetName, err := h.resolveFromFirstEntry(ctx, req.Entries)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
 	firstBasename := filepath.Base(req.Entries[0].WavPath)
@@ -48,34 +59,20 @@ func (h *MergeHandler) Merge(c echo.Context) error {
 
 	mergedBasename := fmt.Sprintf("vocal_%s-p%s_ch%s_%s_%s.m4a_10.wav_%s_%s", bvid, p, ch, date, timePart, start, end)
 
-	firstAbs, err := h.audio.ResolvePath(req.Entries[0].WavPath)
+	var wavPaths []string
+	for _, e := range req.Entries {
+		wavPaths = append(wavPaths, e.WavPath)
+	}
+
+	mergedKey, err := h.audio.MergeAndUpload(ctx, modelName, datasetName, wavPaths, mergedBasename)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
-	outputDir := filepath.Dir(firstAbs)
-	outputPath := filepath.Join(outputDir, mergedBasename+".wav")
-
-	var inputPaths []string
-	for _, e := range req.Entries {
-		abs, err := h.audio.ResolvePath(e.WavPath)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		}
-		inputPaths = append(inputPaths, abs)
-	}
-
-	if err := h.audio.Merge(inputPaths, outputPath); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-	}
-
-	dataDir := strings.TrimRight(h.audio.DataDir(), "/")
-	mergedRel := strings.TrimPrefix(strings.ReplaceAll(outputPath, "\\", "/"), dataDir)
-	mergedRel = strings.TrimPrefix(mergedRel, "/")
 
 	resp := model.MergeResponse{
 		Success: true,
 		Merged: model.EntryInput{
-			WavPath:  mergedRel,
+			WavPath:  mergedKey,
 			Speaker:  req.Speaker,
 			Language: req.Language,
 			Text:     req.MergedText,
@@ -106,4 +103,15 @@ func (h *MergeHandler) Polish(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *MergeHandler) resolveFromFirstEntry(ctx context.Context, entries []model.EntryInput) (modelName, datasetName string, err error) {
+	first := entries[0]
+	filename := filepath.Base(first.WavPath)
+
+	entry, err := h.entryStore.FindByWavPath(ctx, filename)
+	if err != nil || entry == nil {
+		return "", "", fmt.Errorf("cannot resolve dataset for %s", filename)
+	}
+	return resolveNames(ctx, h.datasetStore, h.modelStore, entry.DatasetID)
 }
