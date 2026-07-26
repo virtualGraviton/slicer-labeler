@@ -9,7 +9,11 @@ type Config struct {
 	DeepSeekAPIKey    string
 	DeepSeekModel     string
 	DeepSeekAPIURL    string
-	AudioStorageBase  string
+	StorageEndpoint   string
+	StorageBucket     string
+	StorageAccessKey  string
+	StorageSecretKey  string
+	StoragePrefix     string
 	AudioDataDir      string
 }
 
@@ -21,7 +25,11 @@ func Load() *Config {
 		DeepSeekAPIKey:    os.Getenv("DEEPSEEK_API_KEY"),
 		DeepSeekModel:     envOrDefault("DEEPSEEK_MODEL", "deepseek-v4-flash"),
 		DeepSeekAPIURL:    envOrDefault("DEEPSEEK_API_URL", "https://api.deepseek.com/chat/completions"),
-		AudioStorageBase:  os.Getenv("AUDIO_STORAGE_BASE_URL"),
+		StorageEndpoint:   os.Getenv("STORAGE_ENDPOINT"),
+		StorageBucket:     os.Getenv("STORAGE_BUCKET"),
+		StorageAccessKey:  os.Getenv("STORAGE_ACCESS_KEY"),
+		StorageSecretKey:  os.Getenv("STORAGE_SECRET_KEY"),
+		StoragePrefix:     envOrDefault("STORAGE_PREFIX", "processing"),
 		AudioDataDir:      envOrDefault("AUDIO_DATA_DIR", "/data/audio"),
 	}
 }

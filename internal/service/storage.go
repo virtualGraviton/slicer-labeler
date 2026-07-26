@@ -2,20 +2,32 @@ package service
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
 type StorageService struct {
-	baseURL string
+	endpoint  string
+	bucket    string
+	accessKey string
+	secretKey string
+	prefix    string
 }
 
-func NewStorageService(baseURL string) *StorageService {
-	return &StorageService{baseURL: strings.TrimRight(baseURL, "/")}
+func NewStorageService(endpoint, bucket, accessKey, secretKey, prefix string) *StorageService {
+	return &StorageService{
+		endpoint:  strings.TrimRight(endpoint, "/"),
+		bucket:    bucket,
+		accessKey: accessKey,
+		secretKey: secretKey,
+		prefix:    strings.Trim(prefix, "/"),
+	}
 }
 
-// GenerateURL generates a public URL for an audio file.
-func (s *StorageService) GenerateURL(relPath string) string {
-	relPath = strings.ReplaceAll(relPath, "\\", "/")
-	relPath = strings.TrimPrefix(relPath, "./")
-	return fmt.Sprintf("%s/%s", s.baseURL, relPath)
+// GenerateURL builds the object storage URL for an audio file.
+// Path format: {prefix}/{model_name}/{dataset_name}/{filename}
+func (s *StorageService) GenerateURL(modelName, datasetName, wavPath string) string {
+	filename := filepath.Base(wavPath)
+	path := fmt.Sprintf("%s/%s/%s/%s", s.prefix, modelName, datasetName, filename)
+	return fmt.Sprintf("%s/%s/%s", s.endpoint, s.bucket, path)
 }

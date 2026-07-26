@@ -19,7 +19,7 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg *config.Config) {
 
 	// Services
 	audioSvc := service.NewAudioService(cfg.AudioDataDir)
-	storageSvc := service.NewStorageService(cfg.AudioStorageBase)
+	storageSvc := service.NewStorageService(cfg.StorageEndpoint, cfg.StorageBucket, cfg.StorageAccessKey, cfg.StorageSecretKey, cfg.StoragePrefix)
 	deepseekSvc := service.NewDeepSeekService(cfg.DeepSeekAPIKey, cfg.DeepSeekAPIURL, cfg.DeepSeekModel)
 	qualitySvc := service.NewQualityService(audioSvc, deepseekSvc, qualityRepo, entryRepo)
 
@@ -28,7 +28,7 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg *config.Config) {
 	modelH := NewModelHandler(modelRepo)
 	datasetH := NewDatasetHandler(datasetRepo)
 	entryH := NewEntryHandler(entryRepo, qualityRepo)
-	audioH := NewAudioHandler(entryRepo, storageSvc)
+	audioH := NewAudioHandler(entryRepo, datasetRepo, modelRepo, storageSvc)
 	splitH := NewSplitHandler(entryRepo, audioSvc)
 	mergeH := NewMergeHandler(entryRepo, audioSvc, deepseekSvc)
 	qualityH := NewQualityHandler(entryRepo, qualityRepo, qualitySvc)
