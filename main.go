@@ -25,16 +25,15 @@ func main() {
 		log.Fatal("DATABASE_URL environment variable is required")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	pool, err := db.NewPool(ctx, cfg.DatabaseURL)
+	gormDB, err := db.NewDB(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer pool.Close()
 
-	if err := db.RunMigrations(ctx, pool); err != nil {
+	sqlDB, _ := gormDB.DB()
+	defer sqlDB.Close()
+
+	if err := db.AutoMigrate(gormDB); err != nil {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
 	log.Println("Database migrations completed successfully")
@@ -50,7 +49,7 @@ func main() {
 		AllowHeaders: []string{"Content-Type", "Authorization"},
 	}))
 
-	handler.RegisterRoutes(e, pool, cfg)
+	handler.RegisterRoutes(e, gormDB, cfg)
 
 	go func() {
 		addr := fmt.Sprintf("%s:%s", cfg.Host, cfg.Port)

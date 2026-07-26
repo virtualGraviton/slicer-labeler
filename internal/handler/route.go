@@ -1,8 +1,8 @@
 package handler
 
 import (
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
+	"gorm.io/gorm"
 
 	"slicer-labeler/internal/config"
 	"slicer-labeler/internal/db"
@@ -10,12 +10,12 @@ import (
 )
 
 // RegisterRoutes sets up all API routes on the Echo instance.
-func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg *config.Config) {
+func RegisterRoutes(e *echo.Echo, gormDB *gorm.DB, cfg *config.Config) {
 	// Stores
-	modelStore := db.NewModelStore(pool)
-	datasetStore := db.NewDatasetStore(pool)
-	entryStore := db.NewEntryStore(pool)
-	qualityStore := db.NewQualityStore(pool)
+	modelStore := db.NewModelStore(gormDB)
+	datasetStore := db.NewDatasetStore(gormDB)
+	entryStore := db.NewEntryStore(gormDB)
+	qualityStore := db.NewQualityStore(gormDB)
 
 	// Services
 	audioSvc := service.NewAudioService(cfg.AudioDataDir)
@@ -24,7 +24,7 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg *config.Config) {
 	qualitySvc := service.NewQualityService(audioSvc, deepseekSvc, qualityStore, entryStore)
 
 	// Handlers
-	healthH := NewHealthHandler(pool)
+	healthH := NewHealthHandler(gormDB)
 	modelH := NewModelHandler(modelStore)
 	datasetH := NewDatasetHandler(datasetStore)
 	entryH := NewEntryHandler(entryStore, qualityStore)

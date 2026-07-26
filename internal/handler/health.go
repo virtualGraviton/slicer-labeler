@@ -3,21 +3,24 @@ package handler
 import (
 	"net/http"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
+	"gorm.io/gorm"
 )
 
 type HealthHandler struct {
-	pool *pgxpool.Pool
+	db *gorm.DB
 }
 
-func NewHealthHandler(pool *pgxpool.Pool) *HealthHandler {
-	return &HealthHandler{pool: pool}
+func NewHealthHandler(db *gorm.DB) *HealthHandler {
+	return &HealthHandler{db: db}
 }
 
 func (h *HealthHandler) GetHealth(c echo.Context) error {
-	err := h.pool.Ping(c.Request().Context())
+	sqlDB, err := h.db.DB()
 	dbOk := err == nil
+	if dbOk {
+		dbOk = sqlDB.Ping() == nil
+	}
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"ok":      dbOk,
 		"db":      dbOk,
