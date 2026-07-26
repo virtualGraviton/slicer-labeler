@@ -6,20 +6,20 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"slicer-labeler/internal/db"
 	"slicer-labeler/internal/model"
-	"slicer-labeler/internal/repository"
 )
 
 type ModelHandler struct {
-	repo *repository.ModelRepo
+	store *db.ModelStore
 }
 
-func NewModelHandler(repo *repository.ModelRepo) *ModelHandler {
-	return &ModelHandler{repo: repo}
+func NewModelHandler(store *db.ModelStore) *ModelHandler {
+	return &ModelHandler{store: store}
 }
 
 func (h *ModelHandler) List(c echo.Context) error {
-	models, err := h.repo.List(c.Request().Context())
+	models, err := h.store.List(c.Request().Context())
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -31,7 +31,7 @@ func (h *ModelHandler) Get(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid modelId"})
 	}
-	m, err := h.repo.Get(c.Request().Context(), id)
+	m, err := h.store.Get(c.Request().Context(), id)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -49,7 +49,7 @@ func (h *ModelHandler) Create(c echo.Context) error {
 	if req.Name == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "name is required"})
 	}
-	m, err := h.repo.Create(c.Request().Context(), req.Name, req.Description)
+	m, err := h.store.Create(c.Request().Context(), req.Name, req.Description)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -65,7 +65,7 @@ func (h *ModelHandler) Update(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
-	m, err := h.repo.Update(c.Request().Context(), id, req.Name, req.Description)
+	m, err := h.store.Update(c.Request().Context(), id, req.Name, req.Description)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -80,7 +80,7 @@ func (h *ModelHandler) Delete(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid modelId"})
 	}
-	deleted, err := h.repo.Delete(c.Request().Context(), id)
+	deleted, err := h.store.Delete(c.Request().Context(), id)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}

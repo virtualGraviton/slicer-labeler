@@ -8,19 +8,19 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"slicer-labeler/internal/db"
 	"slicer-labeler/internal/model"
-	"slicer-labeler/internal/repository"
 	"slicer-labeler/internal/service"
 )
 
 type MergeHandler struct {
-	entryRepo *repository.EntryRepo
-	audio     *service.AudioService
-	deepseek  *service.DeepSeekService
+	entryStore *db.EntryStore
+	audio      *service.AudioService
+	deepseek   *service.DeepSeekService
 }
 
-func NewMergeHandler(entryRepo *repository.EntryRepo, audio *service.AudioService, deepseek *service.DeepSeekService) *MergeHandler {
-	return &MergeHandler{entryRepo: entryRepo, audio: audio, deepseek: deepseek}
+func NewMergeHandler(entryStore *db.EntryStore, audio *service.AudioService, deepseek *service.DeepSeekService) *MergeHandler {
+	return &MergeHandler{entryStore: entryStore, audio: audio, deepseek: deepseek}
 }
 
 func (h *MergeHandler) Merge(c echo.Context) error {

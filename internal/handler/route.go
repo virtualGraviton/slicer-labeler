@@ -5,33 +5,33 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"slicer-labeler/internal/config"
-	"slicer-labeler/internal/repository"
+	"slicer-labeler/internal/db"
 	"slicer-labeler/internal/service"
 )
 
 // RegisterRoutes sets up all API routes on the Echo instance.
 func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg *config.Config) {
-	// Repositories
-	modelRepo := repository.NewModelRepo(pool)
-	datasetRepo := repository.NewDatasetRepo(pool)
-	entryRepo := repository.NewEntryRepo(pool)
-	qualityRepo := repository.NewQualityRepo(pool)
+	// Stores
+	modelStore := db.NewModelStore(pool)
+	datasetStore := db.NewDatasetStore(pool)
+	entryStore := db.NewEntryStore(pool)
+	qualityStore := db.NewQualityStore(pool)
 
 	// Services
 	audioSvc := service.NewAudioService(cfg.AudioDataDir)
 	storageSvc := service.NewStorageService(cfg.StorageEndpoint, cfg.StorageBucket, cfg.StorageAccessKey, cfg.StorageSecretKey, cfg.StoragePrefix)
 	deepseekSvc := service.NewDeepSeekService(cfg.DeepSeekAPIKey, cfg.DeepSeekAPIURL, cfg.DeepSeekModel)
-	qualitySvc := service.NewQualityService(audioSvc, deepseekSvc, qualityRepo, entryRepo)
+	qualitySvc := service.NewQualityService(audioSvc, deepseekSvc, qualityStore, entryStore)
 
 	// Handlers
 	healthH := NewHealthHandler(pool)
-	modelH := NewModelHandler(modelRepo)
-	datasetH := NewDatasetHandler(datasetRepo)
-	entryH := NewEntryHandler(entryRepo, qualityRepo)
-	audioH := NewAudioHandler(entryRepo, datasetRepo, modelRepo, storageSvc)
-	splitH := NewSplitHandler(entryRepo, audioSvc)
-	mergeH := NewMergeHandler(entryRepo, audioSvc, deepseekSvc)
-	qualityH := NewQualityHandler(entryRepo, qualityRepo, qualitySvc)
+	modelH := NewModelHandler(modelStore)
+	datasetH := NewDatasetHandler(datasetStore)
+	entryH := NewEntryHandler(entryStore, qualityStore)
+	audioH := NewAudioHandler(entryStore, datasetStore, modelStore, storageSvc)
+	splitH := NewSplitHandler(entryStore, audioSvc)
+	mergeH := NewMergeHandler(entryStore, audioSvc, deepseekSvc)
+	qualityH := NewQualityHandler(entryStore, qualityStore, qualitySvc)
 
 	api := e.Group("/api")
 

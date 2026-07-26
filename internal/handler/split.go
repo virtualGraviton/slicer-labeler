@@ -9,18 +9,18 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"slicer-labeler/internal/db"
 	"slicer-labeler/internal/model"
-	"slicer-labeler/internal/repository"
 	"slicer-labeler/internal/service"
 )
 
 type SplitHandler struct {
-	entryRepo *repository.EntryRepo
-	audio     *service.AudioService
+	entryStore *db.EntryStore
+	audio      *service.AudioService
 }
 
-func NewSplitHandler(entryRepo *repository.EntryRepo, audio *service.AudioService) *SplitHandler {
-	return &SplitHandler{entryRepo: entryRepo, audio: audio}
+func NewSplitHandler(entryStore *db.EntryStore, audio *service.AudioService) *SplitHandler {
+	return &SplitHandler{entryStore: entryStore, audio: audio}
 }
 
 func (h *SplitHandler) Split(c echo.Context) error {
@@ -34,7 +34,7 @@ func (h *SplitHandler) Split(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
-	entry, err := h.entryRepo.GetByID(c.Request().Context(), id)
+	entry, err := h.entryStore.GetByID(c.Request().Context(), id)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}

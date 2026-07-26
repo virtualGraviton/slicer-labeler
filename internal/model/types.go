@@ -1,80 +1,6 @@
 package model
 
-import "time"
-
-// Model represents a training model/project that datasets belong to.
-type Model struct {
-	ID          int64     `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
-
-// Dataset groups entries for a specific model.
-type Dataset struct {
-	ID          int64     `json:"id"`
-	ModelID     int64     `json:"model_id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
-
-// Entry is a single annotated audio slice.
-type Entry struct {
-	ID        int64     `json:"id"`
-	DatasetID int64     `json:"dataset_id"`
-	WavPath   string    `json:"wav_path"`
-	Speaker   string    `json:"speaker"`
-	Language  string    `json:"language"`
-	Text      string    `json:"text"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-// QualityResult is the AI quality check result for an entry.
-type QualityResult struct {
-	ID        int64     `json:"id"`
-	EntryID   int64     `json:"entry_id"`
-	Status    string    `json:"status"`
-	Risk      string    `json:"risk"`
-	CheckedAt *time.Time `json:"checked_at"`
-	Model     string    `json:"model"`
-	TextHash  string    `json:"text_hash"`
-	Summary   string    `json:"summary"`
-	Reasons   []string  `json:"reasons"`
-	Audio     AudioInfo `json:"audio"`
-	TextRisk  TextRisk  `json:"text_risk"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-// AudioInfo stores audio boundary analysis results.
-type AudioInfo struct {
-	DurationSec        float64 `json:"durationSec"`
-	LeadingSilenceMs   int     `json:"leadingSilenceMs"`
-	TrailingSilenceMs  int     `json:"trailingSilenceMs"`
-	SilenceEvents      int     `json:"silenceEvents"`
-	TailWindowMs       int     `json:"tailWindowMs"`
-	TailMeanDb         *float64 `json:"tailMeanDb"`
-	TailMaxDb          *float64 `json:"tailMaxDb"`
-	TailEnergyHigh     bool    `json:"tailEnergyHigh"`
-	BoundarySuspicious bool    `json:"boundarySuspicious"`
-	Reasons            []string `json:"reasons"`
-}
-
-// TextRisk stores DeepSeek text analysis results.
-type TextRisk struct {
-	TextComplete         bool    `json:"textComplete"`
-	CurrentTextUnfinished bool    `json:"currentTextUnfinished"`
-	ShouldMergeNext      bool    `json:"shouldMergeNext"`
-	NextIsContinuation   bool    `json:"nextIsContinuation"`
-	Confidence           float64 `json:"confidence"`
-	Reason               string  `json:"reason"`
-}
-
-// --- Request/Response types ---
+// --- Model Request/Response ---
 
 // CreateModelRequest is the body for POST /api/models.
 type CreateModelRequest struct {
@@ -88,6 +14,8 @@ type UpdateModelRequest struct {
 	Description string `json:"description"`
 }
 
+// --- Dataset Request/Response ---
+
 // CreateDatasetRequest is the body for POST /api/models/:modelId/datasets.
 type CreateDatasetRequest struct {
 	Name        string `json:"name"`
@@ -100,10 +28,7 @@ type UpdateDatasetRequest struct {
 	Description string `json:"description"`
 }
 
-// BatchUpsertEntriesRequest is the body for POST /api/datasets/:datasetId/entries.
-type BatchUpsertEntriesRequest struct {
-	Entries []EntryInput `json:"entries"`
-}
+// --- Entry Request/Response ---
 
 // EntryInput represents a single entry to upsert.
 type EntryInput struct {
@@ -113,23 +38,32 @@ type EntryInput struct {
 	Text     string `json:"text"`
 }
 
+// BatchUpsertEntriesRequest is the body for POST /api/datasets/:datasetId/entries.
+type BatchUpsertEntriesRequest struct {
+	Entries []EntryInput `json:"entries"`
+}
+
 // UpdateEntryRequest is the body for PUT /api/entries/:id.
 type UpdateEntryRequest struct {
 	Text string `json:"text"`
 }
+
+// --- Quality Request/Response ---
 
 // CheckQualityRequest is the body for POST /api/entries/:entryId/quality/check.
 type CheckQualityRequest struct {
 	Force bool `json:"force"`
 }
 
+// --- Split Request/Response ---
+
 // SplitRequest is the body for POST /api/entries/:entryId/split.
 type SplitRequest struct {
-	SplitTime     float64 `json:"splitTime"`
-	Text          string  `json:"text"`
-	SplitTextIndex int    `json:"splitTextIndex"`
-	Speaker       string  `json:"speaker"`
-	Language      string  `json:"language"`
+	SplitTime      float64 `json:"splitTime"`
+	Text           string  `json:"text"`
+	SplitTextIndex int     `json:"splitTextIndex"`
+	Speaker        string  `json:"speaker"`
+	Language       string  `json:"language"`
 }
 
 // SplitResponse returns the two new entries from a split operation.
@@ -138,6 +72,8 @@ type SplitResponse struct {
 	First   EntryInput `json:"first"`
 	Second  EntryInput `json:"second"`
 }
+
+// --- Merge Request/Response ---
 
 // MergeRequest is the body for POST /api/entries/merge.
 type MergeRequest struct {
@@ -168,11 +104,7 @@ type PolishMergeResponse struct {
 	Model         string `json:"model"`
 }
 
-// EntryWithQuality combines an entry with its quality result for list responses.
-type EntryWithQuality struct {
-	Entry         Entry          `json:"entry"`
-	QualityResult *QualityResult `json:"quality_result,omitempty"`
-}
+// --- Common ---
 
 // PaginatedResponse wraps a paginated list response.
 type PaginatedResponse struct {

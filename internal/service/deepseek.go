@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"slicer-labeler/internal/db"
 	"slicer-labeler/internal/model"
 )
 
@@ -56,7 +57,7 @@ type deepSeekResponse struct {
 }
 
 // ComputeTextHash generates a hash for the entry + nextEntry pair for cache validation.
-func ComputeTextHash(entry, nextEntry *model.Entry) string {
+func ComputeTextHash(entry, nextEntry *db.Entry) string {
 	h := sha1.New()
 	h.Write([]byte(fmt.Sprintf("%s\n%s\n---NEXT---\n", entry.WavPath, entry.Text)))
 	if nextEntry != nil {
@@ -66,7 +67,7 @@ func ComputeTextHash(entry, nextEntry *model.Entry) string {
 }
 
 // AnalyzeTextRisk sends text to DeepSeek for grammar/semantic analysis.
-func (s *DeepSeekService) AnalyzeTextRisk(entry, nextEntry *model.Entry) (*model.TextRisk, error) {
+func (s *DeepSeekService) AnalyzeTextRisk(entry, nextEntry *db.Entry) (*db.TextRisk, error) {
 	if s.apiKey == "" {
 		return nil, fmt.Errorf("未配置 DeepSeek API Key")
 	}
@@ -114,7 +115,7 @@ func (s *DeepSeekService) AnalyzeTextRisk(entry, nextEntry *model.Entry) (*model
 	semanticContinuous := getBool(parsed, "semantically_continuous") || getBool(parsed, "should_merge_next") || getBool(parsed, "next_is_continuation")
 	confidence := clampFloat(getFloat(parsed, "confidence"), 0, 1)
 
-	return &model.TextRisk{
+	return &db.TextRisk{
 		TextComplete:          getBool(parsed, "grammatically_complete"),
 		CurrentTextUnfinished: grammarBroken,
 		ShouldMergeNext:       semanticContinuous,

@@ -6,17 +6,17 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"slicer-labeler/internal/db"
 	"slicer-labeler/internal/model"
-	"slicer-labeler/internal/repository"
 )
 
 type EntryHandler struct {
-	repo       *repository.EntryRepo
-	qualityRepo *repository.QualityRepo
+	store       *db.EntryStore
+	qualityStore *db.QualityStore
 }
 
-func NewEntryHandler(repo *repository.EntryRepo, qualityRepo *repository.QualityRepo) *EntryHandler {
-	return &EntryHandler{repo: repo, qualityRepo: qualityRepo}
+func NewEntryHandler(store *db.EntryStore, qualityStore *db.QualityStore) *EntryHandler {
+	return &EntryHandler{store: store, qualityStore: qualityStore}
 }
 
 func (h *EntryHandler) List(c echo.Context) error {
@@ -34,7 +34,7 @@ func (h *EntryHandler) List(c echo.Context) error {
 		pageSize = 20
 	}
 
-	entries, total, err := h.repo.ListByDataset(c.Request().Context(), datasetID, page, pageSize)
+	entries, total, err := h.store.ListByDataset(c.Request().Context(), datasetID, page, pageSize)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -58,7 +58,7 @@ func (h *EntryHandler) BatchUpsert(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
-	count, err := h.repo.BatchUpsert(c.Request().Context(), datasetID, req.Entries)
+	count, err := h.store.BatchUpsert(c.Request().Context(), datasetID, req.Entries)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -80,7 +80,7 @@ func (h *EntryHandler) Update(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
-	entry, err := h.repo.UpdateText(c.Request().Context(), id, req.Text)
+	entry, err := h.store.UpdateText(c.Request().Context(), id, req.Text)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -98,9 +98,9 @@ func (h *EntryHandler) Delete(c echo.Context) error {
 	}
 
 	// Delete quality result first (cascade handles this, but explicit is safer)
-	_ = h.qualityRepo.DeleteByEntryID(c.Request().Context(), id)
+	_ = h.qualityStore.DeleteByEntryID(c.Request().Context(), id)
 
-	deleted, err := h.repo.Delete(c.Request().Context(), id)
+	deleted, err := h.store.Delete(c.Request().Context(), id)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}

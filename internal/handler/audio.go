@@ -6,28 +6,28 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"slicer-labeler/internal/repository"
+	"slicer-labeler/internal/db"
 	"slicer-labeler/internal/service"
 )
 
 type AudioHandler struct {
-	entryRepo   *repository.EntryRepo
-	datasetRepo *repository.DatasetRepo
-	modelRepo   *repository.ModelRepo
-	storage     *service.StorageService
+	entryStore   *db.EntryStore
+	datasetStore *db.DatasetStore
+	modelStore   *db.ModelStore
+	storage      *service.StorageService
 }
 
 func NewAudioHandler(
-	entryRepo *repository.EntryRepo,
-	datasetRepo *repository.DatasetRepo,
-	modelRepo *repository.ModelRepo,
+	entryStore *db.EntryStore,
+	datasetStore *db.DatasetStore,
+	modelStore *db.ModelStore,
 	storage *service.StorageService,
 ) *AudioHandler {
 	return &AudioHandler{
-		entryRepo:   entryRepo,
-		datasetRepo: datasetRepo,
-		modelRepo:   modelRepo,
-		storage:     storage,
+		entryStore:   entryStore,
+		datasetStore: datasetStore,
+		modelStore:   modelStore,
+		storage:      storage,
 	}
 }
 
@@ -37,7 +37,7 @@ func (h *AudioHandler) GetAudio(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid entryId"})
 	}
 
-	entry, err := h.entryRepo.GetByID(c.Request().Context(), id)
+	entry, err := h.entryStore.GetByID(c.Request().Context(), id)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -45,12 +45,12 @@ func (h *AudioHandler) GetAudio(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "entry not found"})
 	}
 
-	dataset, err := h.datasetRepo.Get(c.Request().Context(), entry.DatasetID)
+	dataset, err := h.datasetStore.Get(c.Request().Context(), entry.DatasetID)
 	if err != nil || dataset == nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "dataset not found"})
 	}
 
-	model, err := h.modelRepo.Get(c.Request().Context(), dataset.ModelID)
+	model, err := h.modelStore.Get(c.Request().Context(), dataset.ModelID)
 	if err != nil || model == nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "model not found"})
 	}

@@ -6,16 +6,16 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"slicer-labeler/internal/db"
 	"slicer-labeler/internal/model"
-	"slicer-labeler/internal/repository"
 )
 
 type DatasetHandler struct {
-	repo *repository.DatasetRepo
+	store *db.DatasetStore
 }
 
-func NewDatasetHandler(repo *repository.DatasetRepo) *DatasetHandler {
-	return &DatasetHandler{repo: repo}
+func NewDatasetHandler(store *db.DatasetStore) *DatasetHandler {
+	return &DatasetHandler{store: store}
 }
 
 func (h *DatasetHandler) List(c echo.Context) error {
@@ -23,7 +23,7 @@ func (h *DatasetHandler) List(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid modelId"})
 	}
-	datasets, err := h.repo.ListByModel(c.Request().Context(), modelID)
+	datasets, err := h.store.ListByModel(c.Request().Context(), modelID)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -35,7 +35,7 @@ func (h *DatasetHandler) Get(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid datasetId"})
 	}
-	d, err := h.repo.Get(c.Request().Context(), id)
+	d, err := h.store.Get(c.Request().Context(), id)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -57,7 +57,7 @@ func (h *DatasetHandler) Create(c echo.Context) error {
 	if req.Name == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "name is required"})
 	}
-	d, err := h.repo.Create(c.Request().Context(), modelID, req.Name, req.Description)
+	d, err := h.store.Create(c.Request().Context(), modelID, req.Name, req.Description)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -73,7 +73,7 @@ func (h *DatasetHandler) Update(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
-	d, err := h.repo.Update(c.Request().Context(), id, req.Name, req.Description)
+	d, err := h.store.Update(c.Request().Context(), id, req.Name, req.Description)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -88,7 +88,7 @@ func (h *DatasetHandler) Delete(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid datasetId"})
 	}
-	deleted, err := h.repo.Delete(c.Request().Context(), id)
+	deleted, err := h.store.Delete(c.Request().Context(), id)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}

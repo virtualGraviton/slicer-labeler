@@ -5,36 +5,35 @@ import (
 	"fmt"
 	"time"
 
-	"slicer-labeler/internal/model"
-	"slicer-labeler/internal/repository"
+	"slicer-labeler/internal/db"
 )
 
 type QualityService struct {
-	audio     *AudioService
-	deepseek  *DeepSeekService
-	qualityRepo *repository.QualityRepo
-	entryRepo   *repository.EntryRepo
+	audio        *AudioService
+	deepseek     *DeepSeekService
+	qualityStore *db.QualityStore
+	entryStore   *db.EntryStore
 }
 
 func NewQualityService(
 	audio *AudioService,
 	deepseek *DeepSeekService,
-	qualityRepo *repository.QualityRepo,
-	entryRepo *repository.EntryRepo,
+	qualityStore *db.QualityStore,
+	entryStore *db.EntryStore,
 ) *QualityService {
 	return &QualityService{
-		audio:       audio,
-		deepseek:    deepseek,
-		qualityRepo: qualityRepo,
-		entryRepo:   entryRepo,
+		audio:        audio,
+		deepseek:     deepseek,
+		qualityStore: qualityStore,
+		entryStore:   entryStore,
 	}
 }
 
 // RunQualityCheck performs a full quality check: audio analysis + AI text risk + risk grading.
-func (s *QualityService) RunQualityCheck(ctx context.Context, entry *model.Entry, nextEntry *model.Entry, force bool) (*model.QualityResult, error) {
+func (s *QualityService) RunQualityCheck(ctx context.Context, entry *db.Entry, nextEntry *db.Entry, force bool) (*db.QualityResult, error) {
 	// Check cache
 	if !force {
-		cached, err := s.qualityRepo.GetByEntryID(ctx, entry.ID)
+		cached, err := s.qualityStore.GetByEntryID(ctx, entry.ID)
 		if err == nil && cached != nil && cached.Status == "ok" {
 			return cached, nil
 		}
@@ -109,7 +108,7 @@ func (s *QualityService) RunQualityCheck(ctx context.Context, entry *model.Entry
 	tailMean := audioInfo.TailMeanDb
 	tailMax := audioInfo.TailMaxDb
 
-	result := &model.QualityResult{
+	result := &db.QualityResult{
 		EntryID:   entry.ID,
 		Status:    "ok",
 		Risk:      risk,
@@ -118,7 +117,7 @@ func (s *QualityService) RunQualityCheck(ctx context.Context, entry *model.Entry
 		TextHash:  textHash,
 		Summary:   summary,
 		Reasons:   reasons,
-		Audio: model.AudioInfo{
+		Audio: db.AudioInfo{
 			DurationSec:        audioInfo.DurationSec,
 			LeadingSilenceMs:   audioInfo.LeadingSilenceMs,
 			TrailingSilenceMs:  audioInfo.TrailingSilenceMs,
@@ -134,7 +133,7 @@ func (s *QualityService) RunQualityCheck(ctx context.Context, entry *model.Entry
 	}
 
 	// Persist result
-	if err := s.qualityRepo.Upsert(ctx, result); err != nil {
+	if err := s.qualityStore.Upsert(ctx, result); err != nil {
 		return nil, fmt.Errorf("save quality result: %w", err)
 	}
 
