@@ -1,6 +1,19 @@
-node_modules/
-dist/
-quality-cache.json
-dev-server.*.log
+# Go
+slicer-labeler
+*.exe
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
 .env
-.env.*
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db

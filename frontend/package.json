@@ -1,14 +1,12 @@
 {
-  "name": "slicer-labeler",
+  "name": "slicer-labeler-frontend",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node scripts/dev-with-logs.mjs",
-    "dev:vite": "vite",
+    "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
-    "start": "node server/server.mjs"
+    "preview": "vite preview"
   },
   "dependencies": {
     "react": "^18.3.1",
