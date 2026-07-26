@@ -7,9 +7,12 @@ export default function ModelFormModal({ open, model, onSave, onClose }) {
   const [description, setDescription] = useState('');
   const isEdit = !!model;
 
+  // 仅在 open 时同步表单数据；关闭期间不清空，避免退出动画中字段闪烁为空
   useEffect(() => {
-    setName(model?.name || '');
-    setDescription(model?.description || '');
+    if (open) {
+      setName(model?.name || '');
+      setDescription(model?.description || '');
+    }
   }, [model, open]);
 
   const handleSubmit = (e) => {

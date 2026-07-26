@@ -10,9 +10,10 @@ export default function ModelCard({ model, index, onEdit, onDelete }) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 30 }}
+      layout
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.06, duration: 0.35, ease: 'easeOut' }}
+      transition={{ delay: index * 0.04, duration: 0.25, ease: 'easeOut' }}
       whileHover={{ y: -4, transition: { duration: 0.2 } }}
       onClick={() => navigate(`/models/${model.id}`)}
       className="group relative rounded-2xl border border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-gray-900/60

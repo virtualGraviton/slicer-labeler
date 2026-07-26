@@ -74,15 +74,15 @@ export default function AppLayout() {
         </div>
       </header>
 
-      {/* Page content */}
-      <main className="max-w-7xl mx-auto px-6 py-6">
-        <AnimatePresence mode="wait">
+      {/* popLayout: 旧页面立即脱流，新页面在顶部正常渲染，避免挤压 */}
+      <main className="relative max-w-7xl mx-auto px-6 py-6">
+        <AnimatePresence mode="popLayout">
           <motion.div
             key={location.pathname}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -12 }}
-            transition={{ duration: 0.2 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeInOut' }}
           >
             <Outlet />
           </motion.div>

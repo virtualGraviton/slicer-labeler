@@ -7,9 +7,12 @@ export default function DatasetFormModal({ open, dataset, onSave, onClose }) {
   const [description, setDescription] = useState('');
   const isEdit = !!dataset;
 
+  // 仅在 open 时同步表单数据；关闭期间不清空，避免退出动画中字段闪烁为空
   useEffect(() => {
-    setName(dataset?.name || '');
-    setDescription(dataset?.description || '');
+    if (open) {
+      setName(dataset?.name || '');
+      setDescription(dataset?.description || '');
+    }
   }, [dataset, open]);
 
   const handleSubmit = (e) => {

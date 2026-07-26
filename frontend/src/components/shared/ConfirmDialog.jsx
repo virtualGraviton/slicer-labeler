@@ -1,6 +1,17 @@
+import { useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function ConfirmDialog({ open, title, message, confirmLabel, onConfirm, onCancel, danger }) {
+  const snap = useRef({ title: '', message: '', confirmLabel: '确认' });
+
+  // 仅在 open 时快照，退出动画期间 AnimatePresence 仍会用当前 props 重渲染退出中的节点，
+  // 此时父组件已将 deleteTarget 置空，必须用快照避免闪现 undefined。
+  useEffect(() => {
+    if (open) {
+      snap.current = { title, message, confirmLabel: confirmLabel || '确认' };
+    }
+  }, [open, title, message, confirmLabel]);
+
   return (
     <AnimatePresence>
       {open && (
@@ -24,9 +35,9 @@ export default function ConfirmDialog({ open, title, message, confirmLabel, onCo
             <h3 className={`text-lg font-semibold mb-2 ${
               danger ? 'text-red-800 dark:text-red-200' : 'text-gray-900 dark:text-gray-100'
             }`}>
-              {title}
+              {snap.current.title}
             </h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{message}</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{snap.current.message}</p>
             <div className="flex justify-end gap-3">
               <button
                 onClick={onCancel}
@@ -43,7 +54,7 @@ export default function ConfirmDialog({ open, title, message, confirmLabel, onCo
                     : 'bg-teal-600 hover:bg-teal-700'
                 }`}
               >
-                {confirmLabel || '确认'}
+                {snap.current.confirmLabel}
               </button>
             </div>
           </motion.div>

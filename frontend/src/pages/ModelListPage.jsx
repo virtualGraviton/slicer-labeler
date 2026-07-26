@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Loader2 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import ModelCard from '../components/model/ModelCard';
 import ModelFormModal from '../components/model/ModelFormModal';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import { fetchModels, createModel, updateModel, deleteModel } from '../utils/api';
+
+const fadeIn = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { duration: 0.15 } };
+const fadeUp = { initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0 }, transition: { duration: 0.2 } };
 
 export default function ModelListPage() {
   const [models, setModels] = useState([]);
@@ -49,16 +52,9 @@ export default function ModelListPage() {
     } catch (err) { alert(err.message || '删除失败'); }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[50vh]">
-        <Loader2 size={32} className="animate-spin text-teal-600 dark:text-teal-400" />
-      </div>
-    );
-  }
-
   return (
     <div>
+      {/* 头部始终渲染，不参与动画切换 */}
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">模型管理</h1>
@@ -71,19 +67,28 @@ export default function ModelListPage() {
         </button>
       </div>
 
-      {models.length === 0 ? (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-          className="flex flex-col items-center justify-center py-20 text-gray-400 dark:text-gray-500">
-          <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4"><Plus size={24} /></div>
-          <p className="text-sm">暂无模型，点击上方按钮创建</p>
-        </motion.div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-          {models.map((m, i) => (
-            <ModelCard key={m.id} model={m} index={i} onEdit={handleEdit} onDelete={setDeleteTarget} />
-          ))}
-        </div>
-      )}
+      {/* popLayout: 退出元素立即脱离布局流，进入元素正常排版不受挤压 */}
+      <AnimatePresence mode="popLayout">
+        {loading ? (
+          <motion.div key="load" {...fadeIn}
+            className="flex items-center justify-center min-h-[50vh]">
+            <Loader2 size={32} className="animate-spin text-teal-600 dark:text-teal-400" />
+          </motion.div>
+        ) : models.length === 0 ? (
+          <motion.div key="empty" {...fadeUp}
+            className="flex flex-col items-center justify-center py-20 text-gray-400 dark:text-gray-500">
+            <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4"><Plus size={24} /></div>
+            <p className="text-sm">暂无模型，点击上方按钮创建</p>
+          </motion.div>
+        ) : (
+          <motion.div key="grid" layout {...fadeIn}
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+            {models.map((m, i) => (
+              <ModelCard key={m.id} model={m} index={i} onEdit={handleEdit} onDelete={setDeleteTarget} />
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <ModelFormModal open={formOpen} model={editingModel} onSave={handleSave}
         onClose={() => { setFormOpen(false); setEditingModel(null); }} />
