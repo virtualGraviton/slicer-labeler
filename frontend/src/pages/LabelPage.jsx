@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { checkQuality, deleteEntry as deleteEntryApi, fetchEntries, fetchQualityCache, saveEntries } from '../utils/api';
@@ -107,6 +107,18 @@ function enrichQualityResults(results, entries) {
     .filter((r) => r.wavPath);
 }
 
+const BTN_SM = 'inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-[13px] rounded-lg font-medium cursor-pointer relative overflow-hidden transition-all duration-200 text-[color:var(--text-primary)] bg-[color:var(--card-bg)] border border-[color:var(--card-border)] hover:bg-[color:var(--card-hover)] hover:border-[rgba(15,23,42,0.22)] hover:-translate-y-px active:translate-y-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none';
+
+const BTN_ACCENT = 'inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-lg text-sm font-medium cursor-pointer relative overflow-hidden transition-all duration-200 text-white bg-[color:var(--accent)] border border-[color:var(--accent)] shadow-[0_4px_14px_var(--accent-glow)] hover:bg-[color:var(--accent-hover)] hover:shadow-[0_6px_20px_var(--accent-glow)] hover:-translate-y-px active:translate-y-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none';
+
+const BTN_ACCENT_SM = 'inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-[13px] rounded-lg font-medium cursor-pointer relative overflow-hidden transition-all duration-200 text-white bg-[color:var(--accent)] border border-[color:var(--accent)] shadow-[0_4px_14px_var(--accent-glow)] hover:bg-[color:var(--accent-hover)] hover:shadow-[0_6px_20px_var(--accent-glow)] hover:-translate-y-px active:translate-y-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none';
+
+const TOAST_BG = {
+  success: 'bg-[color:var(--success)]',
+  error: 'bg-[color:var(--danger)]',
+  info: 'bg-[color:var(--accent)]',
+};
+
 export default function LabelPage() {
   const { datasetId: datasetIdParam } = useParams();
   const navigate = useNavigate();
@@ -135,7 +147,6 @@ export default function LabelPage() {
   // Auto-play state
   const [autoPlayOn, setAutoPlayOn] = useState(false);
   const [settings, setSettings] = useState(readStoredSettings);
-  const [autoPlayIdx, setAutoPlayIdx] = useState(-1);       // global index currently playing or waiting
   const [highlightIndices, setHighlightIndices] = useState([]); // global indices to highlight
   const [countdownIdx, setCountdownIdx] = useState(-1);      // global index showing countdown
   const [countdownVal, setCountdownVal] = useState(0);       // countdown value in seconds
@@ -150,7 +161,6 @@ export default function LabelPage() {
   const mediumPromptActionRef = useRef(null);
   const mediumPromptSkipRef = useRef(null);
   const appContainerRef = useRef(null);
-  const scrollContainerRef = useRef(null);
   const autoPlayEnabledRef = useRef(false);
   const autoPlayIdxRef = useRef(-1);
   const autoPlayGateRef = useRef({});
@@ -160,8 +170,6 @@ export default function LabelPage() {
   const handleQualityCheckRef = useRef(() => {});
   const allEntriesRef = useRef([]);
   const qualityInflightRef = useRef({});
-
-  const originalTextsRef = useRef({});
 
   // Load data
   useEffect(() => {
@@ -194,9 +202,6 @@ export default function LabelPage() {
       } catch (_) {
         setQualityResults([]);
       }
-      const orig = {};
-      allEntriesRef.current.forEach((e, i) => { orig[i] = e.text; });
-      originalTextsRef.current = orig;
       setHasUnsavedChanges(false);
       setCheckedIndices({});
       setError(null);
@@ -244,9 +249,6 @@ export default function LabelPage() {
   const handleSave = useCallback(async () => {
     try {
       await saveEntries(datasetId, allEntries);
-      const orig = {};
-      allEntries.forEach((e, i) => { orig[i] = e.text; });
-      originalTextsRef.current = orig;
       setHasUnsavedChanges(false);
       showToast('保存成功', 'success');
     } catch (err) {
@@ -324,7 +326,6 @@ export default function LabelPage() {
     autoPlayGateRef.current = {};
     clearAutoTimers();
     clearMediumRiskPrompt();
-    setAutoPlayIdx(-1);
     setCountdownIdx(-1);
     setCountdownVal(0);
     setCountdownTotalVal(0);
@@ -457,7 +458,6 @@ export default function LabelPage() {
     autoPlayGateRef.current = {};
     clearAutoTimers();
     clearMediumRiskPrompt();
-    setAutoPlayIdx(-1);
     setCountdownIdx(-1);
     setCountdownVal(0);
     setCountdownTotalVal(0);
@@ -475,7 +475,6 @@ export default function LabelPage() {
       qualityResult: cachedQuality || null,
       mediumAcknowledged: !!options.mediumAcknowledged,
     };
-    setAutoPlayIdx(nextGlobalIdx);
     autoPlayIdxRef.current = nextGlobalIdx;
     setCountdownIdx(nextGlobalIdx);
     setCountdownVal(gapSec);
@@ -485,7 +484,6 @@ export default function LabelPage() {
     scrollToItem(nextGlobalIdx);
 
     const startTime = Date.now();
-    const totalMs = gapSec * 1000;
 
     clearAutoTimers();
     countdownTimerRef.current = setInterval(() => {
@@ -515,7 +513,6 @@ export default function LabelPage() {
       autoPlayGateRef.current = {};
       clearAutoTimers();
       clearMediumRiskPrompt();
-      setAutoPlayIdx(-1);
       setCountdownIdx(-1);
       setCountdownTotalVal(0);
       showToast('自动播放完成', 'info');
@@ -544,7 +541,6 @@ export default function LabelPage() {
     // Skip low-risk items when the setting is enabled and quality is already cached low
     if (settingsRef.current.skipLowRisk && isLowRisk(cachedQuality)) {
       // Visual feedback before skipping: scroll to item and briefly highlight
-      setAutoPlayIdx(nextGlobalIdx);
       autoPlayIdxRef.current = nextGlobalIdx;
       scrollToItem(nextGlobalIdx);
       highlightItems([nextGlobalIdx], 250);
@@ -560,7 +556,6 @@ export default function LabelPage() {
     // check before deciding whether to play or skip (don't start audio yet)
     if (settingsRef.current.skipLowRisk && !cachedQuality) {
       autoPlayIdxRef.current = nextGlobalIdx;
-      setAutoPlayIdx(nextGlobalIdx);
       autoPlayGateRef.current[nextGlobalIdx] = { audioDone: false, qualityDone: false, isPrePlayWait: true };
       handleQualityCheckRef.current(nextGlobalIdx, false, true);
       return;
@@ -801,7 +796,6 @@ export default function LabelPage() {
     setCountdownIdx(-1);
     setCountdownVal(0);
     setCountdownTotalVal(0);
-    setAutoPlayIdx(-1);
     autoPlayIdxRef.current = -1;
     autoPlayGateRef.current = {};
     focusItemsAfterListChange([globalIndex, globalIndex + 1], globalIndex);
@@ -818,9 +812,6 @@ export default function LabelPage() {
     });
 
     saveEntries(datasetId, next).then(() => {
-        const orig = {};
-        next.forEach((e, i) => { orig[i] = e.text; });
-        originalTextsRef.current = orig;
         setHasUnsavedChanges(false);
       }).catch((err) => showToast('自动保存失败: ' + err.message, 'error'));
   }, [focusItemsAfterListChange, showToast]);
@@ -863,7 +854,6 @@ export default function LabelPage() {
     setCountdownIdx(-1);
     setCountdownVal(0);
     setCountdownTotalVal(0);
-    setAutoPlayIdx(-1);
     autoPlayIdxRef.current = -1;
     autoPlayGateRef.current = {};
     focusItemsAfterListChange([firstIdx], firstIdx);
@@ -881,9 +871,6 @@ export default function LabelPage() {
     });
 
     saveEntries(datasetId, next).then(() => {
-        const orig = {};
-        next.forEach((e, i) => { orig[i] = e.text; });
-        originalTextsRef.current = orig;
         setHasUnsavedChanges(false);
       }).catch((err) => showToast('自动保存失败: ' + err.message, 'error'));
   }, [focusItemsAfterListChange, showToast]);
@@ -927,7 +914,6 @@ export default function LabelPage() {
       setCountdownIdx(-1);
       setCountdownVal(0);
       setCountdownTotalVal(0);
-      setAutoPlayIdx(-1);
       autoPlayIdxRef.current = -1;
       autoPlayGateRef.current = {};
       setCurrentPage((page) => Math.min(Math.max(page, 0), Math.max(0, Math.ceil(next.length / PAGE_SIZE) - 1)));
@@ -937,9 +923,6 @@ export default function LabelPage() {
         return prev.filter((r) => !removeKeys.has(r.wavPath));
       });
 
-      const orig = {};
-      next.forEach((entry, index) => { orig[index] = entry.text; });
-      originalTextsRef.current = orig;
       setHasUnsavedChanges(false);
       setDeleteTarget(null);
       showToast(`已删除条目 #${deleteIndex + 1}`, 'success');
@@ -964,9 +947,9 @@ export default function LabelPage() {
 
   if (loading) {
     return (
-      <div className="app-container">
-        <div className="loading-container">
-          <div className="spinner" />
+      <div className="mx-auto max-w-[1400px] px-8 py-6 min-h-screen">
+        <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 text-[color:var(--text-secondary)]">
+          <div className="w-10 h-10 border-[3px] border-[color:var(--card-border)] border-t-[color:var(--accent)] rounded-full animate-spin" />
           <span>加载数据中...</span>
         </div>
       </div>
@@ -975,11 +958,11 @@ export default function LabelPage() {
 
   if (error) {
     return (
-      <div className="app-container">
-        <div className="loading-container">
+      <div className="mx-auto max-w-[1400px] px-8 py-6 min-h-screen">
+        <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 text-[color:var(--text-secondary)]">
           <div style={{ fontSize: 48, marginBottom: 16 }}>⚠</div>
           <span style={{ color: 'var(--danger)' }}>{error}</span>
-          <button className="btn btn-accent" onClick={loadData}>重试</button>
+          <button className={BTN_ACCENT} onClick={loadData}>重试</button>
         </div>
       </div>
     );
@@ -1015,20 +998,20 @@ export default function LabelPage() {
       {/* Main content */}
       <div className="flex-1 min-w-0 p-4">
         {mediumRiskPrompt && (
-        <div className="medium-risk-prompt">
-          <div className="medium-risk-copy">
+        <div className="flex items-center justify-between gap-4 sticky top-[70px] z-[95] mb-4 px-3.5 py-2.5 rounded-lg border border-[rgba(217,119,6,0.34)] bg-[rgba(254,240,138,0.92)] text-[#78350f] shadow-[0_8px_22px_rgba(217,119,6,0.12)] backdrop-blur dark:bg-[rgba(113,63,18,0.92)] dark:text-[#fde68a] max-[860px]:flex-col max-[860px]:items-stretch animate-[fadeIn_0.3s_ease]">
+          <div className="flex flex-col gap-0.5 min-w-0 text-[13px]">
             <strong>中风险条目 #{mediumRiskPrompt.index + 1}</strong>
-            <span>{mediumRiskPrompt.result?.summary || '该条目存在一定不匹配风险，请决定是否继续自动播放。'}</span>
+            <span className="text-[#92400e] dark:text-[#fcd34d] overflow-hidden text-ellipsis whitespace-nowrap max-[860px]:whitespace-normal">{mediumRiskPrompt.result?.summary || '该条目存在一定不匹配风险，请决定是否继续自动播放。'}</span>
           </div>
-          <div className="medium-risk-actions">
-            <span className="medium-risk-countdown">{mediumRiskPrompt.secondsLeft}s 后继续</span>
-            <button className="btn btn-sm" onClick={() => stopAutoPlayByUser('自动播放已在中风险条目停止')}>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="min-w-[82px] text-xs text-[#92400e] dark:text-[#fcd34d] tabular-nums">{mediumRiskPrompt.secondsLeft}s 后继续</span>
+            <button className={BTN_SM} onClick={() => stopAutoPlayByUser('自动播放已在中风险条目停止')}>
               停止
             </button>
-            <button className="btn btn-sm" onClick={skipMediumRiskPrompt}>
+            <button className={BTN_SM} onClick={skipMediumRiskPrompt}>
               跳过此条
             </button>
-            <button className="btn btn-accent btn-sm" onClick={continueMediumRiskPrompt}>
+            <button className={BTN_ACCENT_SM} onClick={continueMediumRiskPrompt}>
               继续
             </button>
           </div>
@@ -1037,33 +1020,33 @@ export default function LabelPage() {
 
       {/* Pagination top */}
       <div style={{ marginBottom: 18, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-        <div className="pagination">
+        <div className="flex items-center gap-3 text-sm text-[color:var(--text-secondary)]">
           <button
-            className="btn btn-sm"
+            className={BTN_SM}
             onClick={() => setCurrentPage(0)}
             disabled={currentPage === 0}
           >
             {'<<'}
           </button>
           <button
-            className="btn btn-sm"
+            className={BTN_SM}
             onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
             disabled={currentPage === 0}
           >
             {'<'}
           </button>
-          <span className="page-info">
+          <span className="min-w-[100px] text-center">
             {currentPage + 1} / {totalPages}
           </span>
           <button
-            className="btn btn-sm"
+            className={BTN_SM}
             onClick={() => setCurrentPage((p) => Math.min(totalPages - 1, p + 1))}
             disabled={currentPage === totalPages - 1}
           >
             {'>'}
           </button>
           <button
-            className="btn btn-sm"
+            className={BTN_SM}
             onClick={() => setCurrentPage(totalPages - 1)}
             disabled={currentPage === totalPages - 1}
           >
@@ -1090,7 +1073,7 @@ export default function LabelPage() {
               outline: 'none',
             }}
           />
-          <button className="btn btn-sm" onClick={handleJumpPage}>跳转</button>
+          <button className={BTN_SM} onClick={handleJumpPage}>跳转</button>
         </div>
         <span style={{ fontSize: 13, color: 'var(--text-secondary)', marginLeft: 16 }}>
           共 {totalCount || allEntries.length} 条
@@ -1098,7 +1081,7 @@ export default function LabelPage() {
       </div>
 
       {/* Items */}
-      <div className="items-container">
+      <div className="flex flex-col gap-[10px] mb-6">
         {pageEntries.map((entry, i) => {
           const globalIdx = currentPage * PAGE_SIZE + i;
           return (
@@ -1133,33 +1116,33 @@ export default function LabelPage() {
 
       {/* Pagination bottom */}
       <div style={{ display: 'flex', justifyContent: 'center' }}>
-        <div className="pagination">
+        <div className="flex items-center gap-3 text-sm text-[color:var(--text-secondary)]">
           <button
-            className="btn btn-sm"
+            className={BTN_SM}
             onClick={() => setCurrentPage(0)}
             disabled={currentPage === 0}
           >
             {'<<'}
           </button>
           <button
-            className="btn btn-sm"
+            className={BTN_SM}
             onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
             disabled={currentPage === 0}
           >
             {'<'}
           </button>
-          <span className="page-info">
+          <span className="min-w-[100px] text-center">
             {currentPage + 1} / {totalPages}
           </span>
           <button
-            className="btn btn-sm"
+            className={BTN_SM}
             onClick={() => setCurrentPage((p) => Math.min(totalPages - 1, p + 1))}
             disabled={currentPage === totalPages - 1}
           >
             {'>'}
           </button>
           <button
-            className="btn btn-sm"
+            className={BTN_SM}
             onClick={() => setCurrentPage(totalPages - 1)}
             disabled={currentPage === totalPages - 1}
           >
@@ -1186,7 +1169,7 @@ export default function LabelPage() {
               outline: 'none',
             }}
           />
-          <button className="btn btn-sm" onClick={handleJumpPage}>跳转</button>
+          <button className={BTN_SM} onClick={handleJumpPage}>跳转</button>
         </div>
       </div>
 

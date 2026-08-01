@@ -44,10 +44,6 @@ export async function fetchDatasets(modelId) {
   return request(`/api/models/${modelId}/datasets`);
 }
 
-export async function getDataset(id) {
-  return request(`/api/datasets/${id}`);
-}
-
 export async function createDataset(modelId, data) {
   return request(`/api/models/${modelId}/datasets`, {
     method: 'POST',
@@ -81,13 +77,6 @@ export async function saveEntries(datasetId, entries) {
 
 export async function deleteEntry(entryId) {
   return request(`/api/entries/${entryId}`, { method: 'DELETE' });
-}
-
-export async function updateEntryText(entryId, text) {
-  return request(`/api/entries/${entryId}`, {
-    method: 'PUT',
-    body: JSON.stringify({ text }),
-  });
 }
 
 // ─── Audio ───

@@ -1,5 +1,19 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { getAudioUrl, mergeAudio, polishMergeText } from '../utils/api';
+
+const BTN = 'inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-lg text-sm font-medium cursor-pointer relative overflow-hidden transition-all duration-200 text-[color:var(--text-primary)] bg-[color:var(--card-bg)] border border-[color:var(--card-border)] hover:bg-[color:var(--card-hover)] hover:border-[rgba(15,23,42,0.22)] hover:-translate-y-px active:translate-y-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none';
+
+const BTN_SM = 'inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-[13px] rounded-lg font-medium cursor-pointer relative overflow-hidden transition-all duration-200 text-[color:var(--text-primary)] bg-[color:var(--card-bg)] border border-[color:var(--card-border)] hover:bg-[color:var(--card-hover)] hover:border-[rgba(15,23,42,0.22)] hover:-translate-y-px active:translate-y-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none';
+
+const BTN_ACCENT = 'inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-lg text-sm font-medium cursor-pointer relative overflow-hidden transition-all duration-200 text-white bg-[color:var(--accent)] border border-[color:var(--accent)] shadow-[0_4px_14px_var(--accent-glow)] hover:bg-[color:var(--accent-hover)] hover:shadow-[0_6px_20px_var(--accent-glow)] hover:-translate-y-px active:translate-y-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none';
+
+const BTN_ACCENT_SM = 'inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-[13px] rounded-lg font-medium cursor-pointer relative overflow-hidden transition-all duration-200 text-white bg-[color:var(--accent)] border border-[color:var(--accent)] shadow-[0_4px_14px_var(--accent-glow)] hover:bg-[color:var(--accent-hover)] hover:shadow-[0_6px_20px_var(--accent-glow)] hover:-translate-y-px active:translate-y-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none';
+
+const MODAL = 'bg-[color:var(--panel-bg)] border border-[color:var(--card-border)] rounded-2xl p-8 max-w-[860px] w-[90vw] max-h-[85vh] overflow-y-auto shadow-[0_25px_60px_rgba(15,23,42,0.22)] animate-[modalIn_0.3s_cubic-bezier(0.34,1.56,0.64,1)]';
+
+const TEXTAREA = 'w-full bg-[color:var(--input-bg)] border border-[color:var(--card-border)] rounded-lg text-[color:var(--text-primary)] p-2.5 text-sm leading-[1.5] resize-y min-h-[60px] outline-none focus:border-[color:var(--accent)] focus:shadow-[0_0_0_3px_var(--accent-glow)]';
+
+const SECTION_LABEL = 'block text-xs font-medium text-[color:var(--text-secondary)] mb-2 uppercase tracking-[0.5px]';
 
 function tokenizeForDiff(text) {
   const value = String(text || '').trim();
@@ -255,13 +269,13 @@ export default function MergeModal({ entries, globalIndices, onClose, onMergeCom
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal merge-modal" onClick={(e) => e.stopPropagation()}>
-        <h2>合并音频 - {entries.length} 个条目</h2>
+    <div className="fixed inset-0 z-[1000] bg-[rgba(15,23,42,0.45)] backdrop-blur-[6px] flex items-center justify-center animate-[fadeIn_0.2s_ease]" onClick={onClose}>
+      <div className={`${MODAL} merge-modal`} onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-[22px] font-semibold mb-6 text-[color:var(--text-primary)]">合并音频 - {entries.length} 个条目</h2>
 
         {/* Merged items list */}
-        <div className="modal-section">
-          <label>选中的条目 ({entries.length})</label>
+        <div className="mb-5">
+          <label className={SECTION_LABEL}>选中的条目 ({entries.length})</label>
           <div style={{ maxHeight: 200, overflowY: 'auto', fontSize: 13, lineHeight: 1.6 }}>
             {entries.map((e, i) => (
               <div key={i} style={{
@@ -279,8 +293,8 @@ export default function MergeModal({ entries, globalIndices, onClose, onMergeCom
         </div>
 
         {/* Full preview */}
-        <div className="modal-section">
-          <label>
+        <div className="mb-5">
+          <label className={SECTION_LABEL}>
             合并预览
             {previewLoaded && (
               <span style={{ marginLeft: 10, fontSize: 12, color: 'var(--text-secondary)' }}>
@@ -290,7 +304,7 @@ export default function MergeModal({ entries, globalIndices, onClose, onMergeCom
           </label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button
-              className={`btn btn-sm ${previewPlaying ? 'btn-accent' : ''}`}
+              className={previewPlaying ? BTN_ACCENT_SM : BTN_SM}
               onClick={playFullPreview}
               disabled={!previewLoaded}
             >
@@ -319,19 +333,20 @@ export default function MergeModal({ entries, globalIndices, onClose, onMergeCom
         </div>
 
         {/* Merged text */}
-        <div className="modal-section">
-          <label>合并后文本（硬拼接）</label>
+        <div className="mb-5">
+          <label className={SECTION_LABEL}>合并后文本（硬拼接）</label>
           <textarea
             value={mergedText}
             onChange={(e) => setMergedText(e.target.value)}
             rows={5}
             placeholder="合并后的文本..."
+            className={TEXTAREA}
           />
         </div>
 
-        <div className="modal-section merge-polish-section">
+        <div className="mb-5 merge-polish-section">
           <div className="merge-polish-head">
-            <label>润色后文本</label>
+            <label className={SECTION_LABEL}>润色后文本</label>
             <div className={`merge-polish-status ${polishLoading ? 'loading' : polishError ? 'error' : polishedText ? 'done' : ''}`}>
               {polishLoading && 'DeepSeek 润色中...'}
               {!polishLoading && polishError && `润色失败：${polishError}`}
@@ -340,7 +355,7 @@ export default function MergeModal({ entries, globalIndices, onClose, onMergeCom
             </div>
           </div>
           {polishError && (
-            <button type="button" className="btn btn-sm" onClick={requestPolish} disabled={polishLoading}>
+            <button type="button" className={BTN_SM} onClick={requestPolish} disabled={polishLoading}>
               重试润色
             </button>
           )}
@@ -349,6 +364,7 @@ export default function MergeModal({ entries, globalIndices, onClose, onMergeCom
             onChange={(e) => setPolishedText(e.target.value)}
             rows={5}
             placeholder={polishLoading ? '正在生成润色文本...' : '润色后的文本会显示在这里，也可以手动编辑'}
+            className={TEXTAREA}
           />
 
           <div className="merge-source-row">
@@ -393,9 +409,9 @@ export default function MergeModal({ entries, globalIndices, onClose, onMergeCom
           )}
         </div>
 
-        <div className="modal-actions">
-          <button className="btn" onClick={onClose}>取消</button>
-          <button className="btn btn-accent" onClick={handleMerge} disabled={loading || !finalText.trim()}>
+        <div className="flex gap-2.5 justify-end mt-6 pt-4 border-t border-[color:var(--card-border)]">
+          <button className={BTN} onClick={onClose}>取消</button>
+          <button className={BTN_ACCENT} onClick={handleMerge} disabled={loading || !finalText.trim()}>
             {loading ? '合并中...' : '确认合并'}
           </button>
         </div>

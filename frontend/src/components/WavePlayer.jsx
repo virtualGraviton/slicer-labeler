@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { useRef, useState, useEffect, useCallback } from 'react';
 import { formatTime } from '../utils/fileNaming';
 
 /**
@@ -245,8 +245,8 @@ export default function WavePlayer({
   const countdownAngle = `${Math.round(countdownProgress * 360)}deg`;
 
   return (
-    <div className="wave-player">
-      <div className="wave-row">
+    <div className="w-full flex flex-col gap-2">
+      <div className="flex items-center gap-2 w-full">
         <button
           className={`play-btn ${playing ? 'playing' : ''} ${countdownActive ? 'countdown-active' : ''}`}
           onClick={togglePlay}
@@ -255,11 +255,11 @@ export default function WavePlayer({
         >
           {playing ? '❚❚' : '▶'}
         </button>
-        <div className="wave-canvas-wrap" ref={containerRef} onClick={handleWaveformClick}>
-          <canvas ref={canvasRef} />
+        <div className="flex-1 h-[52px] rounded-lg bg-[color:var(--waveform-bg)] overflow-hidden cursor-pointer relative transition-shadow hover:shadow-[0_0_0_2px_var(--accent-glow)] self-center" ref={containerRef} onClick={handleWaveformClick}>
+          <canvas ref={canvasRef} className="block w-full h-full" />
         </div>
       </div>
-      <div className="wave-time">
+      <div className="text-[11px] text-[color:var(--text-secondary)] text-center tabular-nums">
         {formatTime(displayTime)} / {formatTime(duration)}
       </div>
       <audio

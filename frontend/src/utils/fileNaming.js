@@ -40,45 +40,6 @@ export function parseSamples(wavPath) {
 }
 
 /**
- * Calculate new filenames after splitting.
- */
-export function computeSplitFilenames(wavPath, splitTimeSeconds) {
-  const SAMPLE_RATE = 32000;
-  const info = parseFilename(wavPath);
-  if (!info) return null;
-
-  const basename = wavPath.split('/').pop().split('\\').pop();
-  const dir = wavPath.substring(0, Math.max(wavPath.lastIndexOf('/'), wavPath.lastIndexOf('\\')));
-
-  const splitSamples = Math.round(splitTimeSeconds * SAMPLE_RATE);
-  const firstStart = info.startSample;
-  const firstEnd = info.startSample + splitSamples;
-  const secondStart = info.startSample + splitSamples;
-  const secondEnd = info.endSample;
-
-  const firstBasename = `${info.prefix}_${String(firstStart).padStart(10, '0')}_${String(firstEnd).padStart(10, '0')}.wav`;
-  const secondBasename = `${info.prefix}_${String(secondStart).padStart(10, '0')}_${String(secondEnd).padStart(10, '0')}.wav`;
-
-  return {
-    first: dir ? `${dir}/${firstBasename}` : firstBasename,
-    second: dir ? `${dir}/${secondBasename}` : secondBasename,
-  };
-}
-
-/**
- * Calculate new filename after merging multiple entries.
- */
-export function computeMergeFilename(wavPaths) {
-  const firstInfo = parseFilename(wavPaths[0]);
-  const lastInfo = parseFilename(wavPaths[wavPaths.length - 1]);
-  if (!firstInfo || !lastInfo) return null;
-
-  const dir = wavPaths[0].substring(0, Math.max(wavPaths[0].lastIndexOf('/'), wavPaths[0].lastIndexOf('\\')));
-  const mergedBasename = `${firstInfo.prefix}_${String(firstInfo.startSample).padStart(10, '0')}_${String(lastInfo.endSample).padStart(10, '0')}.wav`;
-  return dir ? `${dir}/${mergedBasename}` : mergedBasename;
-}
-
-/**
  * Compute absolute time in original video (seconds).
  */
 export function getAbsoluteTime(wavPath) {

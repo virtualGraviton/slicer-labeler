@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Outlet, useLocation, Link } from 'react-router-dom';
-import { Sun, Moon, Settings, ChevronRight, Home, Database } from 'lucide-react';
+import { Sun, Moon, ChevronRight, Database } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function AppLayout() {
