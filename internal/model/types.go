@@ -66,12 +66,8 @@ type SplitRequest struct {
 	Language       string  `json:"language"`
 }
 
-// SplitResponse returns the two new entries from a split operation.
-type SplitResponse struct {
-	Success bool       `json:"success"`
-	First   EntryInput `json:"first"`
-	Second  EntryInput `json:"second"`
-}
+// SplitResponse and MergeResponse are defined in the handler package because
+// they reference internal/db.Entry (importing db from model would create a cycle).
 
 // --- Merge Request/Response ---
 
@@ -81,12 +77,6 @@ type MergeRequest struct {
 	MergedText string       `json:"mergedText"`
 	Speaker    string       `json:"speaker"`
 	Language   string       `json:"language"`
-}
-
-// MergeResponse returns the merged entry.
-type MergeResponse struct {
-	Success bool       `json:"success"`
-	Merged  EntryInput `json:"merged"`
 }
 
 // PolishMergeRequest is the body for POST /api/entries/merge/polish.
@@ -108,8 +98,8 @@ type PolishMergeResponse struct {
 
 // PaginatedResponse wraps a paginated list response.
 type PaginatedResponse struct {
-	Data       interface{} `json:"data"`
-	Total      int64       `json:"total"`
-	Page       int         `json:"page"`
-	PageSize   int         `json:"page_size"`
+	Data     interface{} `json:"data"`
+	Total    int64       `json:"total"`
+	Page     int         `json:"page"`
+	PageSize int         `json:"page_size"`
 }

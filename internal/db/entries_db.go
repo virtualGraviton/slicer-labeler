@@ -149,3 +149,77 @@ func (s *EntryStore) GetNext(ctx context.Context, entryID, datasetID int64) (*En
 	}
 	return &e, nil
 }
+
+// Create inserts a single entry and returns it with its generated id.
+func (s *EntryStore) Create(ctx context.Context, datasetID int64, input model.EntryInput) (*Entry, error) {
+	return createEntryTx(s.db.WithContext(ctx), datasetID, input)
+}
+
+// SplitReplace atomically creates two entries (first, second) and removes the
+// original one, so the dataset always reflects the split result exactly once.
+func (s *EntryStore) SplitReplace(ctx context.Context, datasetID, originalID int64, first, second model.EntryInput) ([]Entry, error) {
+	var out []Entry
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		f, err := createEntryTx(tx, datasetID, first)
+		if err != nil {
+			return err
+		}
+		sc, err := createEntryTx(tx, datasetID, second)
+		if err != nil {
+			return err
+		}
+		if err := tx.Delete(&Entry{}, originalID).Error; err != nil {
+			return fmt.Errorf("delete original entry %d: %w", originalID, err)
+		}
+		out = []Entry{*f, *sc}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// MergeReplace atomically deletes the source entries and creates the merged one.
+func (s *EntryStore) MergeReplace(ctx context.Context, datasetID int64, sourceIDs []int64, merged model.EntryInput) (*Entry, error) {
+	var out *Entry
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if len(sourceIDs) > 0 {
+			if err := tx.Delete(&Entry{}, sourceIDs).Error; err != nil {
+				return fmt.Errorf("delete source entries: %w", err)
+			}
+		}
+		m, err := createEntryTx(tx, datasetID, merged)
+		if err != nil {
+			return err
+		}
+		out = m
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *EntryStore) CountByDataset(ctx context.Context, datasetID int64) (int64, error) {
+	var total int64
+	if err := s.db.WithContext(ctx).Model(&Entry{}).Where("dataset_id = ?", datasetID).Count(&total).Error; err != nil {
+		return 0, fmt.Errorf("count entries: %w", err)
+	}
+	return total, nil
+}
+
+func createEntryTx(tx *gorm.DB, datasetID int64, input model.EntryInput) (*Entry, error) {
+	entry := Entry{
+		DatasetID: datasetID,
+		WavPath:   input.WavPath,
+		Speaker:   input.Speaker,
+		Language:  input.Language,
+		Text:      input.Text,
+	}
+	if err := tx.Create(&entry).Error; err != nil {
+		return nil, fmt.Errorf("create entry: %w", err)
+	}
+	return &entry, nil
+}

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
-import { checkQuality, deleteEntry as deleteEntryApi, fetchEntries, fetchQualityCache, saveEntries } from '../utils/api';
+import { checkQuality, deleteEntry as deleteEntryApi, fetchEntries, fetchQualityCache, updateEntry } from '../utils/api';
 import ItemRow from '../components/ItemRow';
 import SplitModal from '../components/SplitModal';
 import MergeModal from '../components/MergeModal';
@@ -83,11 +83,7 @@ function isLowRisk(result) {
   return result?.risk === 'low';
 }
 
-function riskLabel(risk) {
-  if (risk === 'high') return '高风险';
-  if (risk === 'medium') return '中风险';
-  return '风险';
-}
+const RISK_LABEL = { low: '低风险', medium: '中风险', high: '高风险' };
 
 function qualitySignature(entry, nextEntry) {
   return `${entry?.wavPath || ''}\n${entry?.text || ''}\n---NEXT---\n${nextEntry?.wavPath || ''}\n${nextEntry?.text || ''}`;
@@ -95,16 +91,6 @@ function qualitySignature(entry, nextEntry) {
 
 function findQuality(results, wavPath) {
   return (results || []).find((r) => r.wavPath === wavPath);
-}
-
-// Backend QualityResult JSON has no wavPath; inject it from the entry list so
-// findQuality() can match results against entries (badges then render).
-function enrichQualityResults(results, entries) {
-  if (!Array.isArray(results)) return [];
-  const byEntryId = new Map((entries || []).map((e) => [e.id, e]));
-  return results
-    .map((r) => ({ ...r, wavPath: r.wavPath || byEntryId.get(r.entry_id)?.wavPath }))
-    .filter((r) => r.wavPath);
 }
 
 const BTN_SM = 'inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-[13px] rounded-lg font-medium cursor-pointer relative overflow-hidden transition-all duration-200 text-[color:var(--text-primary)] bg-[color:var(--card-bg)] border border-[color:var(--card-border)] hover:bg-[color:var(--card-hover)] hover:border-[rgba(15,23,42,0.22)] hover:-translate-y-px active:translate-y-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none';
@@ -124,10 +110,9 @@ export default function LabelPage() {
   const navigate = useNavigate();
   const datasetId = parseInt(datasetIdParam, 10);
 
-  const [allEntries, setAllEntries] = useState([]);
-  const [totalCount, setTotalCount] = useState(0);
+  const [entries, setEntries] = useState([]); // sparse cache: loaded pages filled, others undefined
+  const [total, setTotal] = useState(0);
   const [currentPage, setCurrentPage] = useState(readStoredCurrentPage);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [checkedIndices, setCheckedIndices] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -168,17 +153,21 @@ export default function LabelPage() {
   settingsRef.current = settings;
   const scheduleNextRef = useRef(() => {});
   const handleQualityCheckRef = useRef(() => {});
-  const allEntriesRef = useRef([]);
+  const entriesRef = useRef([]);
   const qualityInflightRef = useRef({});
+  const loadedPagesRef = useRef(new Set());
+  const dirtyPathsRef = useRef(new Set());
+  const saveTimerRef = useRef(null);
 
   // Load data
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    allEntriesRef.current = allEntries;
-  }, [allEntries]);
+    entriesRef.current = entries;
+  }, [entries]);
 
   useEffect(() => {
     writeStoredPreferences({
@@ -188,21 +177,53 @@ export default function LabelPage() {
     });
   }, [currentPage, settings, volume]);
 
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageEntries = (entries.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE) || []).filter(Boolean);
+
+  const loadPage = useCallback(async (page) => {
+    const data = await fetchEntries(datasetId, page + 1, PAGE_SIZE);
+    setEntries((prev) => {
+      const next = prev.slice();
+      (data.data || []).forEach((entry, i) => {
+        next[page * PAGE_SIZE + i] = entry;
+      });
+      return next;
+    });
+    if (typeof data.total === 'number') setTotal(data.total);
+    loadedPagesRef.current.add(page);
+    return data;
+  }, [datasetId]);
+
+  const ensurePageLoaded = useCallback(async (page) => {
+    if (loadedPagesRef.current.has(page)) return;
+    await loadPage(page);
+  }, [loadPage]);
+
+  const goToPage = useCallback((page) => {
+    const clamped = Math.max(0, Math.min(totalPages - 1, page));
+    setCurrentPage(clamped);
+    setCheckedIndices({});
+    ensurePageLoaded(clamped);
+  }, [totalPages, ensurePageLoaded]);
+
+  const resetEntriesCache = useCallback(async (page) => {
+    loadedPagesRef.current.clear();
+    setEntries([]);
+    await ensurePageLoaded(page);
+  }, [ensurePageLoaded]);
+
   const loadData = async () => {
     setLoading(true);
     try {
-      const data = await fetchEntries(datasetId, 1, 100000);
-      allEntriesRef.current = data.data || [];
-      setAllEntries(allEntriesRef.current);
-      setTotalCount(data.total || 0);
-      setCurrentPage((page) => Math.min(Math.max(page, 0), Math.max(0, Math.ceil((data.total || allEntriesRef.current.length) / PAGE_SIZE) - 1)));
+      loadedPagesRef.current.clear();
+      setEntries([]);
+      await loadPage(0);
       try {
         const { results } = await fetchQualityCache(datasetId);
-        setQualityResults(enrichQualityResults(results || [], allEntriesRef.current));
+        setQualityResults(Array.isArray(results) ? results : []);
       } catch (_) {
         setQualityResults([]);
       }
-      setHasUnsavedChanges(false);
       setCheckedIndices({});
       setError(null);
     } catch (err) {
@@ -212,13 +233,9 @@ export default function LabelPage() {
     }
   };
 
-  const totalPages = Math.max(1, Math.ceil((totalCount || allEntries.length) / PAGE_SIZE));
-  const pageEntries = allEntries.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
-
   useEffect(() => {
-    if (allEntries.length === 0) return;
     setCurrentPage((page) => Math.min(Math.max(page, 0), totalPages - 1));
-  }, [allEntries.length, totalPages]);
+  }, [total, totalPages]);
 
   // Toast
   const showToast = useCallback((message, type = 'info') => {
@@ -229,7 +246,7 @@ export default function LabelPage() {
     }, 3000);
   }, []);
 
-  const invalidateQualityForIndices = useCallback((indices, entries = allEntriesRef.current) => {
+  const invalidateQualityForIndices = useCallback((indices, entries = entriesRef.current) => {
     const paths = new Set();
     indices.forEach((idx) => {
       if (idx >= 0 && idx < entries.length && entries[idx]?.wavPath) {
@@ -238,23 +255,33 @@ export default function LabelPage() {
     });
     if (paths.size === 0) return;
 
-    setQualityResults((prev) => {
-      const next = { ...prev };
-      paths.forEach((path) => delete next[path]);
-      return next;
-    });
+    setQualityResults((prev) => prev.filter((r) => !paths.has(r.wavPath)));
   }, []);
 
-  // Save
-  const handleSave = useCallback(async () => {
-    try {
-      await saveEntries(datasetId, allEntries);
-      setHasUnsavedChanges(false);
-      showToast('保存成功', 'success');
-    } catch (err) {
-      showToast('保存失败: ' + err.message, 'error');
+  // Save dirty text edits individually (debounced in handleTextChange)
+  const flushDirtySaves = useCallback(async () => {
+    const dirty = Array.from(dirtyPathsRef.current);
+    if (dirty.length === 0) return;
+    const entriesSnapshot = entriesRef.current;
+    await Promise.all(dirty.map(async (wavPath) => {
+      const entry = entriesSnapshot.find((e) => e && e.wavPath === wavPath);
+      if (!entry?.id) return;
+      try {
+        await updateEntry(entry.id, entry.text);
+        dirtyPathsRef.current.delete(wavPath);
+      } catch (err) {
+        showToast(`保存失败: ${err.message}`, 'error');
+      }
+    }));
+  }, [showToast]);
+
+  const handleSave = useCallback(() => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
     }
-  }, [allEntries, showToast]);
+    return flushDirtySaves();
+  }, [flushDirtySaves]);
 
   // Checkbox
   const handleCheck = useCallback((globalIndex, checked) => {
@@ -285,10 +312,10 @@ export default function LabelPage() {
   const handleJumpPage = useCallback(() => {
     const page = parseInt(jumpInput, 10);
     if (!isNaN(page) && page >= 1 && page <= totalPages) {
-      setCurrentPage(page - 1);
+      goToPage(page - 1);
       setJumpInput('');
     }
-  }, [jumpInput, totalPages]);
+  }, [goToPage, jumpInput, totalPages]);
 
   // ---- Auto-play engine ----
   const clearAutoTimers = useCallback(() => {
@@ -334,26 +361,33 @@ export default function LabelPage() {
     showToast(message, 'info');
   }, [clearAutoTimers, clearMediumRiskPrompt, showToast]);
 
-  // Text change
+  // Text change (debounced per-entry auto-save)
   const handleTextChange = useCallback((globalIndex, value) => {
-    const current = allEntriesRef.current;
+    const current = entriesRef.current;
     if (!current[globalIndex]) return;
     if (autoPlayEnabledRef.current) {
       stopAutoPlayByUser('自动播放已暂停，文本已修改');
     }
 
-    const next = [...current];
-    next[globalIndex] = { ...next[globalIndex], text: value };
-    allEntriesRef.current = next;
-    setAllEntries(next);
+    const next = current.slice();
+    const entry = { ...next[globalIndex], text: value };
+    next[globalIndex] = entry;
+    entriesRef.current = next;
+    setEntries(next);
     invalidateQualityForIndices([globalIndex - 1, globalIndex]);
-    setHasUnsavedChanges(true);
-  }, [invalidateQualityForIndices, stopAutoPlayByUser]);
+    dirtyPathsRef.current.add(entry.wavPath);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null;
+      flushDirtySaves();
+    }, 800);
+  }, [invalidateQualityForIndices, stopAutoPlayByUser, flushDirtySaves]);
 
   const scrollToItem = useCallback((globalIdx) => {
     const page = Math.floor(globalIdx / PAGE_SIZE);
     if (page !== currentPage) {
       setCurrentPage(page);
+      ensurePageLoaded(page);
       // Need to scroll after page renders
       setTimeout(() => {
         const rows = document.querySelectorAll('.item-row');
@@ -378,7 +412,7 @@ export default function LabelPage() {
         rows[localIdx].scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }
-  }, [currentPage]);
+  }, [currentPage, ensurePageLoaded]);
 
   const focusItemsAfterListChange = useCallback((indices, scrollIndex = indices[0], durationMs = 1800) => {
     const valid = [...new Set(indices.filter((idx) => idx >= 0))];
@@ -386,6 +420,7 @@ export default function LabelPage() {
 
     const targetPage = Math.floor(scrollIndex / PAGE_SIZE);
     setCurrentPage(targetPage);
+    ensurePageLoaded(targetPage);
     setTimeout(() => {
       highlightItems(valid, durationMs);
       const rows = document.querySelectorAll('.item-row');
@@ -396,14 +431,14 @@ export default function LabelPage() {
         targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }, 120);
-  }, [highlightItems]);
+  }, [ensurePageLoaded, highlightItems]);
 
   const getGapAfterIndex = useCallback((globalIndex) => {
     const nextIdx = globalIndex + 1;
     const currentPageEnd = (Math.floor(globalIndex / PAGE_SIZE) + 1) * PAGE_SIZE - 1;
-    const isLastOnPage = globalIndex >= currentPageEnd || nextIdx >= allEntries.length;
+    const isLastOnPage = globalIndex >= currentPageEnd || nextIdx >= total;
     return isLastOnPage ? settings.pageGapSeconds : settings.gapSeconds;
-  }, [allEntries.length, settings]);
+  }, [total, settings]);
 
   const showMediumRiskPrompt = useCallback((globalIndex, result, onContinue, onSkip = null) => {
     if (!autoPlayEnabledRef.current) return;
@@ -465,7 +500,7 @@ export default function LabelPage() {
     highlightItems([globalIndex], 1200);
     setStopSignal({ nonce: Date.now(), targetIdx: null });
     scrollToItem(globalIndex);
-    showToast(`自动播放已在${riskLabel(risk)}条目停止`, risk === 'high' ? 'error' : 'info');
+    showToast(`自动播放已在${RISK_LABEL[risk] || '风险'}条目停止`, risk === 'high' ? 'error' : 'info');
   }, [clearAutoTimers, clearMediumRiskPrompt, highlightItems, scrollToItem, showToast]);
 
   const beginAutoPlayItem = useCallback((nextGlobalIdx, gapSec, cachedQuality = null, options = {}) => {
@@ -504,9 +539,9 @@ export default function LabelPage() {
   }, [clearAutoTimers, highlightItems, scrollToItem]);
 
   // Start countdown then play
-  const scheduleNext = useCallback((nextGlobalIdx, gapSec) => {
+  const scheduleNext = useCallback(async (nextGlobalIdx, gapSec) => {
     if (!autoPlayEnabledRef.current) return;
-    if (nextGlobalIdx >= allEntries.length) {
+    if (nextGlobalIdx >= total) {
       setAutoPlayOn(false);
       autoPlayEnabledRef.current = false;
       autoPlayIdxRef.current = -1;
@@ -519,8 +554,20 @@ export default function LabelPage() {
       return;
     }
 
-    const nextEntry = allEntries[nextGlobalIdx];
-    const cachedQuality = nextEntry ? findQuality(qualityResults, nextEntry.wavPath) : null;
+    // Ensure the target page is loaded before reading the entry (cross-page auto-play).
+    if (!entriesRef.current[nextGlobalIdx]) {
+      await ensurePageLoaded(Math.floor(nextGlobalIdx / PAGE_SIZE));
+      if (!autoPlayEnabledRef.current) return;
+    }
+    const nextEntry = entriesRef.current[nextGlobalIdx];
+    if (!nextEntry) {
+      setAutoPlayOn(false);
+      autoPlayEnabledRef.current = false;
+      showToast('自动播放完成', 'info');
+      return;
+    }
+
+    const cachedQuality = findQuality(qualityResults, nextEntry.wavPath);
     if (isHighRisk(cachedQuality)) {
       stopAutoPlayForRisk(nextGlobalIdx, cachedQuality);
       return;
@@ -562,7 +609,7 @@ export default function LabelPage() {
     }
 
     beginAutoPlayItem(nextGlobalIdx, gapSec, cachedQuality);
-  }, [allEntries, beginAutoPlayItem, clearAutoTimers, clearMediumRiskPrompt, getGapAfterIndex, qualityResults, showMediumRiskPrompt, showToast, stopAutoPlayForRisk]);
+  }, [beginAutoPlayItem, clearAutoTimers, clearMediumRiskPrompt, ensurePageLoaded, getGapAfterIndex, qualityResults, showMediumRiskPrompt, showToast, stopAutoPlayForRisk, total]);
   scheduleNextRef.current = scheduleNext;
 
   const continueAutoPlayIfReady = useCallback((globalIndex) => {
@@ -636,7 +683,7 @@ export default function LabelPage() {
   }, [continueAutoPlayIfReady]);
 
   const handleQualityCheck = useCallback(async (globalIndex, force = false, silent = false) => {
-    const entriesSnapshot = allEntriesRef.current;
+    const entriesSnapshot = entriesRef.current;
     const entry = entriesSnapshot[globalIndex];
     if (!entry?.wavPath) return;
 
@@ -665,7 +712,7 @@ export default function LabelPage() {
 
     try {
       const { result } = await checkQuality(entry.id, { force });
-      const latestEntries = allEntriesRef.current;
+      const latestEntries = entriesRef.current;
       const latestSignature = qualitySignature(latestEntries[globalIndex], latestEntries[globalIndex + 1] || null);
       if (latestSignature !== requestSignature) return;
 
@@ -683,7 +730,7 @@ export default function LabelPage() {
           continueAutoPlayIfReady(globalIndex);
         }
         if (!silent) {
-          showToast(`质量检测完成: ${result.risk === 'high' ? '高风险' : result.risk === 'medium' ? '中风险' : '低风险'}`, result.risk === 'high' ? 'error' : 'success');
+          showToast(`质量检测完成: ${RISK_LABEL[result.risk] || '风险'}`, result.risk === 'high' ? 'error' : 'success');
         }
       }
     } catch (err) {
@@ -692,7 +739,7 @@ export default function LabelPage() {
         status: 'error',
         risk: 'unknown',
         error: err.message,
-        checkedAt: new Date().toISOString(),
+        checked_at: new Date().toISOString(),
       };
       setQualityResults((prev) => [...prev.filter((r) => r.wavPath !== key), { ...result, wavPath: key }]);
       if (autoPlayEnabledRef.current) {
@@ -724,8 +771,7 @@ export default function LabelPage() {
 
   // Toggle auto-play
   const startAutoPlayFrom = useCallback((globalIndex, gapSec = 0.5) => {
-    const entries = allEntriesRef.current;
-    if (globalIndex < 0 || globalIndex >= entries.length) return;
+    if (globalIndex < 0 || globalIndex >= total) return;
 
     clearAutoTimers();
     clearMediumRiskPrompt();
@@ -766,6 +812,10 @@ export default function LabelPage() {
     return () => {
       clearAutoTimers();
       clearMediumRiskPrompt();
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
       autoPlayEnabledRef.current = false;
       autoPlayIdxRef.current = -1;
       autoPlayGateRef.current = {};
@@ -774,22 +824,17 @@ export default function LabelPage() {
 
   // Split
   const handleSplitClick = useCallback((globalIndex) => {
-    if (!allEntries[globalIndex]) return;
+    if (!entriesRef.current[globalIndex]) return;
     if (autoPlayEnabledRef.current) {
       stopAutoPlayByUser('自动播放已暂停，正在切分条目');
     }
-    setSplitTarget({ entry: allEntries[globalIndex], globalIndex });
-  }, [allEntries, stopAutoPlayByUser]);
+    setSplitTarget({ entry: entriesRef.current[globalIndex], globalIndex });
+  }, [stopAutoPlayByUser]);
 
-  const handleSplitComplete = useCallback((globalIndex, first, second) => {
-    const current = allEntriesRef.current;
-    const originalEntry = current[globalIndex];
-    const next = [...current];
-    next[globalIndex] = { ...first };
-    next.splice(globalIndex + 1, 0, { ...second });
-
-    allEntriesRef.current = next;
-    setAllEntries(next);
+  const handleSplitComplete = useCallback(async (globalIndex, first, second, newTotal) => {
+    if (autoPlayEnabledRef.current) {
+      stopAutoPlayByUser('自动播放已暂停，正在切分条目');
+    }
     setCheckedIndices({});
     setRiskAlert(null);
     setHighlightIndices([]);
@@ -798,23 +843,17 @@ export default function LabelPage() {
     setCountdownTotalVal(0);
     autoPlayIdxRef.current = -1;
     autoPlayGateRef.current = {};
-    focusItemsAfterListChange([globalIndex, globalIndex + 1], globalIndex);
+    if (typeof newTotal === 'number') setTotal(newTotal);
     setQualityResults((prev) => {
-      const removeKeys = new Set();
+      const removeKeys = new Set([first.wavPath, second.wavPath]);
       [globalIndex - 1, globalIndex, globalIndex + 1].forEach((idx) => {
-        if (current[idx]?.wavPath) removeKeys.add(current[idx].wavPath);
-        if (next[idx]?.wavPath) removeKeys.add(next[idx].wavPath);
+        if (entriesRef.current[idx]?.wavPath) removeKeys.add(entriesRef.current[idx].wavPath);
       });
-      if (originalEntry?.wavPath) removeKeys.add(originalEntry.wavPath);
-      removeKeys.add(first.wavPath);
-      removeKeys.add(second.wavPath);
       return prev.filter((r) => !removeKeys.has(r.wavPath));
     });
-
-    saveEntries(datasetId, next).then(() => {
-        setHasUnsavedChanges(false);
-      }).catch((err) => showToast('自动保存失败: ' + err.message, 'error'));
-  }, [focusItemsAfterListChange, showToast]);
+    await resetEntriesCache(currentPage);
+    focusItemsAfterListChange([globalIndex, globalIndex + 1], globalIndex);
+  }, [currentPage, focusItemsAfterListChange, resetEntriesCache, stopAutoPlayByUser]);
 
   // Merge
   const handleMergeClick = useCallback(() => {
@@ -831,24 +870,17 @@ export default function LabelPage() {
     if (autoPlayEnabledRef.current) {
       stopAutoPlayByUser('自动播放已暂停，正在合并条目');
     }
-    const entries = checkedGlobalIndices.map((i) => allEntries[i]);
+    const entries = checkedGlobalIndices.map((i) => entriesRef.current[i]);
     setMergeTargets({ entries, globalIndices: checkedGlobalIndices });
-  }, [checkedGlobalIndices, allEntries, showToast, stopAutoPlayByUser]);
+  }, [checkedGlobalIndices, showToast, stopAutoPlayByUser]);
 
-  const handleMergeComplete = useCallback((globalIndices, merged) => {
-    const current = allEntriesRef.current;
-    const next = [...current];
+  const handleMergeComplete = useCallback(async (globalIndices, merged, newTotal) => {
+    if (autoPlayEnabledRef.current) {
+      stopAutoPlayByUser('自动播放已暂停，正在合并条目');
+    }
     const sorted = [...globalIndices].sort((a, b) => a - b);
     const firstIdx = sorted[0];
-    next[firstIdx] = { ...merged };
-    for (let i = sorted.length - 1; i > 0; i--) {
-      next.splice(sorted[i], 1);
-    }
-
-    allEntriesRef.current = next;
-    setAllEntries(next);
     setCheckedIndices({});
-    setCurrentPage((page) => Math.min(Math.max(page, 0), Math.max(0, Math.ceil(next.length / PAGE_SIZE) - 1)));
     setRiskAlert(null);
     setHighlightIndices([]);
     setCountdownIdx(-1);
@@ -856,28 +888,24 @@ export default function LabelPage() {
     setCountdownTotalVal(0);
     autoPlayIdxRef.current = -1;
     autoPlayGateRef.current = {};
-    focusItemsAfterListChange([firstIdx], firstIdx);
+    if (typeof newTotal === 'number') setTotal(newTotal);
     setQualityResults((prev) => {
-      const removeKeys = new Set();
+      const removeKeys = new Set([merged.wavPath]);
       sorted.forEach((idx) => {
-        if (current[idx]?.wavPath) removeKeys.add(current[idx].wavPath);
+        if (entriesRef.current[idx]?.wavPath) removeKeys.add(entriesRef.current[idx].wavPath);
       });
       [firstIdx - 1, firstIdx].forEach((idx) => {
-        if (current[idx]?.wavPath) removeKeys.add(current[idx].wavPath);
-        if (next[idx]?.wavPath) removeKeys.add(next[idx].wavPath);
+        if (entriesRef.current[idx]?.wavPath) removeKeys.add(entriesRef.current[idx].wavPath);
       });
-      removeKeys.add(merged.wavPath);
       return prev.filter((r) => !removeKeys.has(r.wavPath));
     });
-
-    saveEntries(datasetId, next).then(() => {
-        setHasUnsavedChanges(false);
-      }).catch((err) => showToast('自动保存失败: ' + err.message, 'error'));
-  }, [focusItemsAfterListChange, showToast]);
+    await resetEntriesCache(currentPage);
+    focusItemsAfterListChange([firstIdx], firstIdx);
+  }, [currentPage, focusItemsAfterListChange, resetEntriesCache, stopAutoPlayByUser]);
 
   // Delete
   const handleDeleteClick = useCallback((globalIndex) => {
-    const entry = allEntriesRef.current[globalIndex];
+    const entry = entriesRef.current[globalIndex];
     if (!entry) return;
     setDeleteTarget({ entry, globalIndex });
   }, []);
@@ -885,16 +913,13 @@ export default function LabelPage() {
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteTarget?.entry || deleteLoading) return;
 
-    const current = allEntriesRef.current;
-    const deleteIndex = current.findIndex((entry) => entry.wavPath === deleteTarget.entry.wavPath);
+    const deleteEntry = deleteTarget.entry;
+    const deleteIndex = entriesRef.current.findIndex((e) => e && e.wavPath === deleteEntry.wavPath);
     if (deleteIndex < 0) {
       showToast('删除失败: 条目已不存在', 'error');
       setDeleteTarget(null);
       return;
     }
-
-    const deleteEntry = current[deleteIndex];
-    const next = current.filter((_, index) => index !== deleteIndex);
 
     setDeleteLoading(true);
     try {
@@ -906,8 +931,7 @@ export default function LabelPage() {
 
       await deleteEntryApi(deleteEntry.id);
 
-      allEntriesRef.current = next;
-      setAllEntries(next);
+      dirtyPathsRef.current.delete(deleteEntry.wavPath);
       setCheckedIndices({});
       setRiskAlert(null);
       setHighlightIndices([]);
@@ -916,34 +940,34 @@ export default function LabelPage() {
       setCountdownTotalVal(0);
       autoPlayIdxRef.current = -1;
       autoPlayGateRef.current = {};
-      setCurrentPage((page) => Math.min(Math.max(page, 0), Math.max(0, Math.ceil(next.length / PAGE_SIZE) - 1)));
+      setTotal((t) => Math.max(0, t - 1));
       setQualityResults((prev) => {
         const removeKeys = new Set([deleteEntry.wavPath]);
-        if (current[deleteIndex - 1]?.wavPath) removeKeys.add(current[deleteIndex - 1].wavPath);
+        if (entriesRef.current[deleteIndex - 1]?.wavPath) removeKeys.add(entriesRef.current[deleteIndex - 1].wavPath);
         return prev.filter((r) => !removeKeys.has(r.wavPath));
       });
 
-      setHasUnsavedChanges(false);
       setDeleteTarget(null);
       showToast(`已删除条目 #${deleteIndex + 1}`, 'success');
+      await resetEntriesCache(currentPage);
     } catch (err) {
       showToast('删除失败: ' + err.message, 'error');
     } finally {
       setDeleteLoading(false);
     }
-  }, [deleteLoading, deleteTarget, showToast, stopAutoPlayByUser]);
+  }, [currentPage, deleteLoading, deleteTarget, resetEntriesCache, showToast, stopAutoPlayByUser]);
 
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.ctrlKey && e.key === 's') {
         e.preventDefault();
-        if (hasUnsavedChanges) handleSave();
+        handleSave();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [hasUnsavedChanges, handleSave]);
+  }, [handleSave]);
 
   if (loading) {
     return (
@@ -983,11 +1007,9 @@ export default function LabelPage() {
       {/* Left sidebar */}
       <div className="p-4">
         <LabelSidebar
-          hasUnsavedChanges={hasUnsavedChanges}
           autoPlayOn={autoPlayOn}
           onToggleAutoPlay={toggleAutoPlay}
           onOpenSettings={() => setSettingsOpen(true)}
-          onSave={handleSave}
           checkedCount={checkedGlobalIndices.length}
           onMergeClick={handleMergeClick}
           volume={volume}
@@ -1023,14 +1045,14 @@ export default function LabelPage() {
         <div className="flex items-center gap-3 text-sm text-[color:var(--text-secondary)]">
           <button
             className={BTN_SM}
-            onClick={() => setCurrentPage(0)}
+            onClick={() => goToPage(0)}
             disabled={currentPage === 0}
           >
             {'<<'}
           </button>
           <button
             className={BTN_SM}
-            onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
+            onClick={() => goToPage(currentPage - 1)}
             disabled={currentPage === 0}
           >
             {'<'}
@@ -1076,7 +1098,7 @@ export default function LabelPage() {
           <button className={BTN_SM} onClick={handleJumpPage}>跳转</button>
         </div>
         <span style={{ fontSize: 13, color: 'var(--text-secondary)', marginLeft: 16 }}>
-          共 {totalCount || allEntries.length} 条
+          共 {total} 条
         </span>
       </div>
 
@@ -1119,14 +1141,14 @@ export default function LabelPage() {
         <div className="flex items-center gap-3 text-sm text-[color:var(--text-secondary)]">
           <button
             className={BTN_SM}
-            onClick={() => setCurrentPage(0)}
+            onClick={() => goToPage(0)}
             disabled={currentPage === 0}
           >
             {'<<'}
           </button>
           <button
             className={BTN_SM}
-            onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
+            onClick={() => goToPage(currentPage - 1)}
             disabled={currentPage === 0}
           >
             {'<'}
@@ -1215,9 +1237,9 @@ export default function LabelPage() {
       {/* Volume slider — integrated into sidebar */}
 
       {/* Toast notifications */}
-      <div className="status-bar">
+      <div className="fixed bottom-5 right-5 z-[999] flex flex-col gap-2 items-end">
         {toasts.map((t) => (
-          <div key={t.id} className={`toast toast-${t.type}`}>
+          <div key={t.id} className={`px-5 py-3 rounded-lg text-sm font-medium text-white animate-[toastIn_0.3s_ease] ${TOAST_BG[t.type] || TOAST_BG.info}`}>
             {t.message}
           </div>
         ))}

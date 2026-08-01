@@ -1,13 +1,11 @@
 import { useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Save, Play, Square, Settings, GitMerge, Volume2 } from 'lucide-react';
+import { Play, Square, Settings, GitMerge, Volume2 } from 'lucide-react';
 
 export default function LabelSidebar({
-  hasUnsavedChanges,
   autoPlayOn,
   onToggleAutoPlay,
   onOpenSettings,
-  onSave,
   checkedCount,
   onMergeClick,
   volume,
@@ -50,26 +48,6 @@ export default function LabelSidebar({
       className="w-48 shrink-0 flex flex-col gap-3 rounded-2xl border border-gray-200 dark:border-gray-700
         bg-white/60 dark:bg-gray-900/50 backdrop-blur-sm p-4 self-start sticky top-[72px]"
     >
-      {/* 未保存 */}
-      {hasUnsavedChanges && (
-        <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-lg px-2 py-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-          未保存
-        </div>
-      )}
-
-      {/* 保存 */}
-      <button
-        onClick={onSave}
-        disabled={!hasUnsavedChanges}
-        className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg
-          text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-        title="保存 (Ctrl+S)"
-      >
-        <Save size={14} />
-        保存
-      </button>
-
       {/* 自动播放 */}
       <button
         onClick={onToggleAutoPlay}

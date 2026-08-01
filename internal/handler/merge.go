@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 
@@ -22,6 +23,13 @@ type MergeHandler struct {
 	deepseek     *service.DeepSeekService
 }
 
+// MergeResponse returns the merged entry.
+type MergeResponse struct {
+	Success bool      `json:"success"`
+	Merged  *db.Entry `json:"merged"`
+	Total   int64     `json:"total"`
+}
+
 func NewMergeHandler(entryStore *db.EntryStore, datasetStore *db.DatasetStore, modelStore *db.ModelStore, audio *service.AudioService, deepseek *service.DeepSeekService) *MergeHandler {
 	return &MergeHandler{entryStore: entryStore, datasetStore: datasetStore, modelStore: modelStore, audio: audio, deepseek: deepseek}
 }
@@ -35,10 +43,11 @@ func (h *MergeHandler) Merge(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Need at least 2 entries"})
 	}
 
-	ctx := c.Request().Context()
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
+	defer cancel()
 
 	// Resolve model/dataset from the first entry (look up by wav path)
-	modelName, datasetName, err := h.resolveFromFirstEntry(ctx, req.Entries)
+	datasetID, modelName, datasetName, err := h.resolveFromFirstEntry(ctx, req.Entries)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -69,17 +78,31 @@ func (h *MergeHandler) Merge(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
-	resp := model.MergeResponse{
-		Success: true,
-		Merged: model.EntryInput{
-			WavPath:  mergedKey,
-			Speaker:  req.Speaker,
-			Language: req.Language,
-			Text:     req.MergedText,
-		},
+	// Resolve source entry ids and persist the merge atomically (remove sources).
+	var sourceIDs []int64
+	for _, e := range req.Entries {
+		src, err := h.entryStore.FindByWavPath(ctx, filepath.Base(e.WavPath))
+		if err == nil && src != nil {
+			sourceIDs = append(sourceIDs, src.ID)
+		}
+	}
+	mergedEntry, err := h.entryStore.MergeReplace(ctx, datasetID, sourceIDs, model.EntryInput{
+		WavPath:  mergedKey,
+		Speaker:  req.Speaker,
+		Language: req.Language,
+		Text:     req.MergedText,
+	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
-	return c.JSON(http.StatusOK, resp)
+	total, _ := h.entryStore.CountByDataset(ctx, datasetID)
+
+	return c.JSON(http.StatusOK, MergeResponse{
+		Success: true,
+		Merged:  mergedEntry,
+		Total:   total,
+	})
 }
 
 func (h *MergeHandler) Polish(c echo.Context) error {
@@ -105,13 +128,17 @@ func (h *MergeHandler) Polish(c echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
-func (h *MergeHandler) resolveFromFirstEntry(ctx context.Context, entries []model.EntryInput) (modelName, datasetName string, err error) {
+func (h *MergeHandler) resolveFromFirstEntry(ctx context.Context, entries []model.EntryInput) (datasetID int64, modelName, datasetName string, err error) {
 	first := entries[0]
 	filename := filepath.Base(first.WavPath)
 
 	entry, err := h.entryStore.FindByWavPath(ctx, filename)
 	if err != nil || entry == nil {
-		return "", "", fmt.Errorf("cannot resolve dataset for %s", filename)
+		return 0, "", "", fmt.Errorf("cannot resolve dataset for %s", filename)
 	}
-	return resolveNames(ctx, h.datasetStore, h.modelStore, entry.DatasetID)
+	modelName, datasetName, err = resolveNames(ctx, h.datasetStore, h.modelStore, entry.DatasetID)
+	if err != nil {
+		return 0, "", "", err
+	}
+	return entry.DatasetID, modelName, datasetName, nil
 }

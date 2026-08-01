@@ -58,7 +58,7 @@ export default function SplitModal({ entry, globalIndex, onClose, onSplitComplet
         speaker: entry.speaker,
         language: entry.language,
       });
-      onSplitComplete(globalIndex, result.first, result.second);
+      onSplitComplete(globalIndex, result.first, result.second, result.total);
       showToast('切分完成', 'success');
       onClose();
     } catch (err) {

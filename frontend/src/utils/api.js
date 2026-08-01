@@ -68,10 +68,10 @@ export async function fetchEntries(datasetId, page = 1, pageSize = 10) {
   return request(`/api/datasets/${datasetId}/entries?page=${page}&page_size=${pageSize}`);
 }
 
-export async function saveEntries(datasetId, entries) {
-  return request(`/api/datasets/${datasetId}/entries`, {
-    method: 'POST',
-    body: JSON.stringify({ entries }),
+export async function updateEntry(entryId, text) {
+  return request(`/api/entries/${entryId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ text }),
   });
 }
 

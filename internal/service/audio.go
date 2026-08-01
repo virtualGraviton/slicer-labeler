@@ -96,7 +96,7 @@ func (s *AudioService) SplitAndUpload(ctx context.Context, modelName, datasetNam
 		return "", "", fmt.Errorf("download: %w", err)
 	}
 
-	firstBytes, secondBytes, err := splitBytes(data, splitTime)
+	firstBytes, secondBytes, err := splitBytes(ctx, data, splitTime)
 	if err != nil {
 		return "", "", err
 	}
@@ -151,7 +151,7 @@ func (s *AudioService) MergeAndUpload(ctx context.Context, modelName, datasetNam
 
 	// Run ffmpeg concat
 	outPath := tmpDir + "/merged.wav"
-	cmd := exec.Command("ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concatPath, "-c", "copy", outPath)
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concatPath, "-c", "copy", outPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("concat merge: %s", string(out))
 	}
@@ -260,9 +260,9 @@ func analyzeTailEnergyBytes(data []byte, durationSec float64) (*tailEnergyResult
 	return result, nil
 }
 
-func splitBytes(data []byte, splitTime float64) (first []byte, second []byte, err error) {
+func splitBytes(ctx context.Context, data []byte, splitTime float64) (first []byte, second []byte, err error) {
 	// First part
-	cmd1 := exec.Command("ffmpeg", "-y", "-i", "pipe:0", "-t", fmt.Sprintf("%f", splitTime), "-f", "wav", "pipe:1")
+	cmd1 := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", "pipe:0", "-t", fmt.Sprintf("%f", splitTime), "-f", "wav", "pipe:1")
 	cmd1.Stdin = bytes.NewReader(data)
 	var buf1 bytes.Buffer
 	cmd1.Stdout = &buf1
@@ -276,7 +276,7 @@ func splitBytes(data []byte, splitTime float64) (first []byte, second []byte, er
 	}
 
 	// Second part
-	cmd2 := exec.Command("ffmpeg", "-y", "-i", "pipe:0", "-ss", fmt.Sprintf("%f", splitTime), "-f", "wav", "pipe:1")
+	cmd2 := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", "pipe:0", "-ss", fmt.Sprintf("%f", splitTime), "-f", "wav", "pipe:1")
 	cmd2.Stdin = bytes.NewReader(data)
 	var buf2 bytes.Buffer
 	cmd2.Stdout = &buf2

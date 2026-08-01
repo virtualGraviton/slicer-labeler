@@ -37,6 +37,7 @@ type TextRisk struct {
 type QualityResult struct {
 	ID        int64      `json:"id" gorm:"primaryKey;autoIncrement"`
 	EntryID   int64      `json:"entry_id" gorm:"not null;uniqueIndex;constraint:OnDelete:CASCADE"`
+	WavPath   string     `json:"wavPath" gorm:"-"`
 	Status    string     `json:"status" gorm:"type:text;not null;default:'pending'"`
 	Risk      string     `json:"risk" gorm:"type:text;not null;default:'low';index"`
 	CheckedAt *time.Time `json:"checked_at"`
@@ -92,6 +93,7 @@ func (s *QualityStore) ListByDataset(ctx context.Context, datasetID int64) ([]Qu
 	var results []QualityResult
 	err := s.db.WithContext(ctx).
 		Table("quality_results").
+		Select("quality_results.*, entries.wav_path").
 		Joins("JOIN entries ON entries.id = quality_results.entry_id").
 		Where("entries.dataset_id = ?", datasetID).
 		Order("quality_results.id ASC").

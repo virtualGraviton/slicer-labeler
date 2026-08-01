@@ -251,7 +251,7 @@ export default function MergeModal({ entries, globalIndices, onClose, onMergeCom
         speaker: entries[0].speaker,
         language: entries[0].language,
       });
-      onMergeComplete(globalIndices, result.merged);
+      onMergeComplete(globalIndices, result.merged, result.total);
       showToast('合并完成', 'success');
       onClose();
     } catch (err) {

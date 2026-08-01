@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 
@@ -19,6 +21,14 @@ type SplitHandler struct {
 	datasetStore *db.DatasetStore
 	modelStore   *db.ModelStore
 	audio        *service.AudioService
+}
+
+// SplitResponse returns the two new entries from a split operation.
+type SplitResponse struct {
+	Success bool     `json:"success"`
+	First   db.Entry `json:"first"`
+	Second  db.Entry `json:"second"`
+	Total   int64    `json:"total"`
 }
 
 func NewSplitHandler(entryStore *db.EntryStore, datasetStore *db.DatasetStore, modelStore *db.ModelStore, audio *service.AudioService) *SplitHandler {
@@ -36,7 +46,8 @@ func (h *SplitHandler) Split(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
-	ctx := c.Request().Context()
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
+	defer cancel()
 
 	entry, err := h.entryStore.GetByID(ctx, id)
 	if err != nil {
@@ -79,25 +90,40 @@ func (h *SplitHandler) Split(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
-	// Split text
-	text1 := strings.TrimSpace(req.Text[:req.SplitTextIndex])
-	text2 := strings.TrimSpace(req.Text[req.SplitTextIndex:])
+	// Split text by runes so multi-byte (e.g. Chinese) characters are not cut mid-sequence.
+	runes := []rune(req.Text)
+	splitIdx := req.SplitTextIndex
+	if splitIdx < 0 {
+		splitIdx = 0
+	}
+	if splitIdx > len(runes) {
+		splitIdx = len(runes)
+	}
+	text1 := strings.TrimSpace(string(runes[:splitIdx]))
+	text2 := strings.TrimSpace(string(runes[splitIdx:]))
 
-	resp := model.SplitResponse{
-		Success: true,
-		First: model.EntryInput{
-			WavPath:  firstKey,
-			Speaker:  req.Speaker,
-			Language: req.Language,
-			Text:     text1,
-		},
-		Second: model.EntryInput{
-			WavPath:  secondKey,
-			Speaker:  req.Speaker,
-			Language: req.Language,
-			Text:     text2,
-		},
+	// Persist both halves and remove the original entry atomically.
+	entries, err := h.entryStore.SplitReplace(ctx, entry.DatasetID, entry.ID, model.EntryInput{
+		WavPath:  firstKey,
+		Speaker:  req.Speaker,
+		Language: req.Language,
+		Text:     text1,
+	}, model.EntryInput{
+		WavPath:  secondKey,
+		Speaker:  req.Speaker,
+		Language: req.Language,
+		Text:     text2,
+	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
-	return c.JSON(http.StatusOK, resp)
+	total, _ := h.entryStore.CountByDataset(ctx, entry.DatasetID)
+
+	return c.JSON(http.StatusOK, SplitResponse{
+		Success: true,
+		First:   entries[0],
+		Second:  entries[1],
+		Total:   total,
+	})
 }

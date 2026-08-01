@@ -101,7 +101,7 @@ export default function ItemRow({
     ? qualityResult.reasons.filter(Boolean).slice(0, 4)
     : [];
   const audioQuality = qualityResult?.audio || {};
-  const textQuality = qualityResult?.text || {};
+  const textQuality = qualityResult?.text_risk || {};
 
   return (
     <div
