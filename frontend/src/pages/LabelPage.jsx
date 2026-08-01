@@ -150,6 +150,9 @@ export default function LabelPage() {
       (data.data || []).forEach((entry, i) => {
         next[page * PAGE_SIZE + i] = entry;
       });
+      // Sync the ref immediately so auto-play can read the freshly loaded page
+      // right after awaiting loadPage, without waiting for a re-render.
+      entriesRef.current = next;
       return next;
     });
     if (typeof data.total === 'number') setTotal(data.total);
@@ -658,14 +661,14 @@ export default function LabelPage() {
           </span>
           <button
             className={BTN_SM}
-            onClick={() => setCurrentPage((p) => Math.min(totalPages - 1, p + 1))}
+            onClick={() => goToPage(currentPage + 1)}
             disabled={currentPage === totalPages - 1}
           >
             {'>'}
           </button>
           <button
             className={BTN_SM}
-            onClick={() => setCurrentPage(totalPages - 1)}
+            onClick={() => goToPage(totalPages - 1)}
             disabled={currentPage === totalPages - 1}
           >
             {'>>'}
@@ -748,14 +751,14 @@ export default function LabelPage() {
           </span>
           <button
             className={BTN_SM}
-            onClick={() => setCurrentPage((p) => Math.min(totalPages - 1, p + 1))}
+            onClick={() => goToPage(currentPage + 1)}
             disabled={currentPage === totalPages - 1}
           >
             {'>'}
           </button>
           <button
             className={BTN_SM}
-            onClick={() => setCurrentPage(totalPages - 1)}
+            onClick={() => goToPage(totalPages - 1)}
             disabled={currentPage === totalPages - 1}
           >
             {'>>'}
