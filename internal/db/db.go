@@ -36,6 +36,10 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(&Model{}, &Dataset{}, &Entry{}); err != nil {
 		return err
 	}
+	// Backfill sort_order for rows that predate the column (they get id order).
+	if err := db.Exec(`UPDATE entries SET sort_order = id WHERE sort_order = 0`).Error; err != nil {
+		return err
+	}
 	// Ensure CHECK constraint exists on entries.language (GORM tag may or may not apply it)
 	return db.Exec(`
 		DO $$ BEGIN

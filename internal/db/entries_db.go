@@ -20,6 +20,7 @@ type Entry struct {
 	Language  string    `json:"language" gorm:"type:text;not null;default:'';check:language_valid,language = '' OR language ~ '^[A-Z]{2}$'"`
 	Text      string    `json:"text" gorm:"type:text;not null;default:''"`
 	Deleted   bool      `json:"deleted" gorm:"not null;default:false"`
+	SortOrder float64   `json:"sortOrder" gorm:"not null;default:0"`
 	CreatedAt time.Time `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 	Dataset   Dataset   `json:"-" gorm:"foreignKey:DatasetID;constraint:OnDelete:CASCADE"`
@@ -38,15 +39,15 @@ func NewEntryStore(db *gorm.DB) *EntryStore {
 
 func (s *EntryStore) ListByDataset(ctx context.Context, datasetID int64, page, pageSize int) ([]Entry, int64, error) {
 	var total int64
-	if err := s.db.WithContext(ctx).Model(&Entry{}).Where("dataset_id = ?", datasetID).Count(&total).Error; err != nil {
+	if err := s.db.WithContext(ctx).Model(&Entry{}).Where("dataset_id = ? AND deleted = ?", datasetID, false).Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("count entries: %w", err)
 	}
 
 	offset := (page - 1) * pageSize
 	var entries []Entry
 	err := s.db.WithContext(ctx).
-		Where("dataset_id = ?", datasetID).
-		Order("id ASC").
+		Where("dataset_id = ? AND deleted = ?", datasetID, false).
+		Order("sort_order ASC, id ASC").
 		Limit(pageSize).Offset(offset).
 		Find(&entries).Error
 	if err != nil {
@@ -85,6 +86,13 @@ func (s *EntryStore) GetByDatasetAndWavPath(ctx context.Context, datasetID int64
 }
 
 func (s *EntryStore) BatchUpsert(ctx context.Context, datasetID int64, inputs []model.EntryInput) (int, error) {
+	// New entries keep increasing sort order so they append after existing ones.
+	var maxSort float64
+	if err := s.db.WithContext(ctx).Model(&Entry{}).Where("dataset_id = ?", datasetID).
+		Select("COALESCE(MAX(sort_order), 0)").Scan(&maxSort).Error; err != nil {
+		return 0, fmt.Errorf("get max sort order: %w", err)
+	}
+
 	entries := make([]Entry, len(inputs))
 	for i, in := range inputs {
 		entries[i] = Entry{
@@ -93,12 +101,15 @@ func (s *EntryStore) BatchUpsert(ctx context.Context, datasetID int64, inputs []
 			Speaker:   in.Speaker,
 			Language:  in.Language,
 			Text:      in.Text,
+			SortOrder: maxSort + float64(i+1),
 		}
 	}
 
+	// sort_order is intentionally not part of the update columns: re-importing an
+	// existing wavPath keeps its original position instead of moving to the end.
 	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "dataset_id"}, {Name: "wav_path"}},
-		DoUpdates: clause.AssignmentColumns([]string{"speaker", "language", "text", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"speaker", "language", "text", "deleted", "updated_at"}),
 	}).Create(&entries)
 
 	return int(result.RowsAffected), result.Error
@@ -138,36 +149,43 @@ func (s *EntryStore) FindByWavPath(ctx context.Context, wavPath string) (*Entry,
 	return &e, nil
 }
 
-func (s *EntryStore) GetNext(ctx context.Context, entryID, datasetID int64) (*Entry, error) {
-	var e Entry
-	err := s.db.WithContext(ctx).
-		Where("dataset_id = ? AND id > ?", datasetID, entryID).
-		Order("id ASC").
-		First(&e).Error
-	if err == gorm.ErrRecordNotFound {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("get next entry: %w", err)
-	}
-	return &e, nil
-}
-
 // Create inserts a single entry and returns it with its generated id.
 func (s *EntryStore) Create(ctx context.Context, datasetID int64, input model.EntryInput) (*Entry, error) {
-	return createEntryTx(s.db.WithContext(ctx), datasetID, input)
+	var maxSort float64
+	if err := s.db.WithContext(ctx).Model(&Entry{}).Where("dataset_id = ?", datasetID).
+		Select("COALESCE(MAX(sort_order), 0)").Scan(&maxSort).Error; err != nil {
+		return nil, fmt.Errorf("get max sort order: %w", err)
+	}
+	return createEntryTx(s.db.WithContext(ctx), datasetID, input, maxSort+1)
 }
 
-// SplitReplace atomically creates two entries (first, second) and removes the
-// original one, so the dataset always reflects the split result exactly once.
+// SplitReplace atomically creates two entries (first, second) and soft-deletes the
+// original one. The new entries keep the original entry's position: first takes the
+// original sort order and second sits between it and the next entry (mid-point), so
+// consecutive splits on the same branch never collide.
 func (s *EntryStore) SplitReplace(ctx context.Context, datasetID, originalID int64, first, second model.EntryInput) ([]Entry, error) {
 	var out []Entry
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		f, err := createEntryTx(tx, datasetID, first)
+		var orig Entry
+		if err := tx.First(&orig, originalID).Error; err != nil {
+			return fmt.Errorf("get original entry %d: %w", originalID, err)
+		}
+
+		var nextSort float64
+		if err := tx.Model(&Entry{}).
+			Where("dataset_id = ? AND deleted = ? AND sort_order > ?", datasetID, false, orig.SortOrder).
+			Order("sort_order ASC").Limit(1).Pluck("sort_order", &nextSort).Error; err != nil {
+			return fmt.Errorf("get next sort order: %w", err)
+		}
+		if nextSort == 0 {
+			nextSort = orig.SortOrder + 1
+		}
+
+		f, err := createEntryTx(tx, datasetID, first, orig.SortOrder)
 		if err != nil {
 			return err
 		}
-		sc, err := createEntryTx(tx, datasetID, second)
+		sc, err := createEntryTx(tx, datasetID, second, (orig.SortOrder+nextSort)/2)
 		if err != nil {
 			return err
 		}
@@ -183,16 +201,22 @@ func (s *EntryStore) SplitReplace(ctx context.Context, datasetID, originalID int
 	return out, nil
 }
 
-// MergeReplace atomically deletes the source entries and creates the merged one.
+// MergeReplace atomically soft-deletes the source entries and creates the merged one
+// at the position of the first source entry.
 func (s *EntryStore) MergeReplace(ctx context.Context, datasetID int64, sourceIDs []int64, merged model.EntryInput) (*Entry, error) {
 	var out *Entry
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var minSort float64
 		if len(sourceIDs) > 0 {
+			if err := tx.Model(&Entry{}).Where("id IN ?", sourceIDs).
+				Select("COALESCE(MIN(sort_order), 0)").Scan(&minSort).Error; err != nil {
+				return fmt.Errorf("get min source sort order: %w", err)
+			}
 			if err := tx.Model(&Entry{}).Where("id IN ?", sourceIDs).Update("deleted", true).Error; err != nil {
 				return fmt.Errorf("soft delete source entries: %w", err)
 			}
 		}
-		m, err := createEntryTx(tx, datasetID, merged)
+		m, err := createEntryTx(tx, datasetID, merged, minSort)
 		if err != nil {
 			return err
 		}
@@ -207,19 +231,20 @@ func (s *EntryStore) MergeReplace(ctx context.Context, datasetID int64, sourceID
 
 func (s *EntryStore) CountByDataset(ctx context.Context, datasetID int64) (int64, error) {
 	var total int64
-	if err := s.db.WithContext(ctx).Model(&Entry{}).Where("dataset_id = ?", datasetID).Count(&total).Error; err != nil {
+	if err := s.db.WithContext(ctx).Model(&Entry{}).Where("dataset_id = ? AND deleted = ?", datasetID, false).Count(&total).Error; err != nil {
 		return 0, fmt.Errorf("count entries: %w", err)
 	}
 	return total, nil
 }
 
-func createEntryTx(tx *gorm.DB, datasetID int64, input model.EntryInput) (*Entry, error) {
+func createEntryTx(tx *gorm.DB, datasetID int64, input model.EntryInput, sortOrder float64) (*Entry, error) {
 	entry := Entry{
 		DatasetID: datasetID,
 		WavPath:   input.WavPath,
 		Speaker:   input.Speaker,
 		Language:  input.Language,
 		Text:      input.Text,
+		SortOrder: sortOrder,
 	}
 	if err := tx.Create(&entry).Error; err != nil {
 		return nil, fmt.Errorf("create entry: %w", err)
