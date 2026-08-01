@@ -32,7 +32,7 @@ type UpdateDatasetRequest struct {
 
 // EntryInput represents a single entry to upsert.
 type EntryInput struct {
-	WavPath  string `json:"wav_path"`
+	WavPath  string `json:"wavPath"`
 	Speaker  string `json:"speaker"`
 	Language string `json:"language"`
 	Text     string `json:"text"`

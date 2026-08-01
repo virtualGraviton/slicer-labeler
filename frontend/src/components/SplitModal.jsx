@@ -10,7 +10,7 @@ export default function SplitModal({ entry, globalIndex, onClose, onSplitComplet
   const [previewPlaying, setPreviewPlaying] = useState(null); // 'first' | 'second' | null
   const [loading, setLoading] = useState(false);
 
-  const audioUrl = getAudioUrl(entry.wavPath);
+  const audioUrl = getAudioUrl(entry.id);
   const { startSample, endSample } = parseSamples(entry.wavPath);
 
   const audioRef = useRef(null);
@@ -45,8 +45,7 @@ export default function SplitModal({ entry, globalIndex, onClose, onSplitComplet
     }
     setLoading(true);
     try {
-      const result = await splitAudio({
-        audioPath: entry.wavPath,
+      const result = await splitAudio(entry.id, {
         splitTime,
         text: entry.text,
         splitTextIndex,

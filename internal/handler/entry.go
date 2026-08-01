@@ -30,7 +30,7 @@ func (h *EntryHandler) List(c echo.Context) error {
 		page = 1
 	}
 	pageSize, _ := strconv.Atoi(c.QueryParam("page_size"))
-	if pageSize < 1 || pageSize > 100 {
+	if pageSize < 1 || pageSize > 100000 {
 		pageSize = 20
 	}
 

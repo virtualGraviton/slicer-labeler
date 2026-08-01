@@ -66,7 +66,7 @@ export async function deleteDataset(id) {
   return request(`/api/datasets/${id}`, { method: 'DELETE' });
 }
 
-// ─── Entry APIs (adapted for new three-layer routing) ───
+// ─── Entry APIs ───
 
 export async function fetchEntries(datasetId, page = 1, pageSize = 10) {
   return request(`/api/datasets/${datasetId}/entries?page=${page}&page_size=${pageSize}`);
@@ -79,42 +79,33 @@ export async function saveEntries(datasetId, entries) {
   });
 }
 
-// Legacy wrappers for the label page (App.jsx compatibility)
-export async function fetchList() {
-  throw new Error('fetchList requires datasetId, use fetchEntries(datasetId, page, pageSize)');
-}
-
-export async function saveList(entries) {
-  throw new Error('saveList requires datasetId, use saveEntries(datasetId, entries)');
-}
-
 export async function deleteEntry(entryId) {
   return request(`/api/entries/${entryId}`, { method: 'DELETE' });
 }
 
-// Legacy: deleteEntry with full entries array (App.jsx uses this)
-export async function deleteEntryLegacy({ deleteEntry: entry, entries }) {
-  // First delete the entry via the new API
-  await request(`/api/entries/${entry.id}`, { method: 'DELETE' });
-  return { success: true };
-}
-
-export function getAudioUrl(relPath, entryId) {
-  if (entryId) {
-    return `/api/entries/${entryId}/audio`;
-  }
-  // Fallback for legacy usage
-  return `/api/audio?path=${encodeURIComponent(relPath)}`;
-}
-
-export async function splitAudio({ audioPath, splitTime, text, splitTextIndex, speaker, language }) {
-  // The split endpoint now requires entryId - for label page, we pass via entry context
-  // Legacy wrapper: the handler will accept the old format
-  return request('/api/entries/split-legacy', {
-    method: 'POST',
-    body: JSON.stringify({ audioPath, splitTime, text, splitTextIndex, speaker, language }),
+export async function updateEntryText(entryId, text) {
+  return request(`/api/entries/${entryId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ text }),
   });
 }
+
+// ─── Audio ───
+
+export function getAudioUrl(entryId) {
+  return `/api/entries/${entryId}/audio`;
+}
+
+// ─── Split ───
+
+export async function splitAudio(entryId, { splitTime, text, splitTextIndex, speaker, language }) {
+  return request(`/api/entries/${entryId}/split`, {
+    method: 'POST',
+    body: JSON.stringify({ splitTime, text, splitTextIndex, speaker, language }),
+  });
+}
+
+// ─── Merge ───
 
 export async function mergeAudio({ entries, mergedText, speaker, language }) {
   return request('/api/entries/merge', {
@@ -130,20 +121,15 @@ export async function polishMergeText({ entries, hardMergedText, speaker, langua
   });
 }
 
+// ─── Quality ───
+
 export async function fetchQualityCache(datasetId) {
   return request(`/api/datasets/${datasetId}/quality/cache`);
 }
 
-export async function checkQuality({ entry, nextEntry, force = false }) {
-  return request(`/api/entries/${entry.id}/quality/check`, {
+export async function checkQuality(entryId, { force = false } = {}) {
+  return request(`/api/entries/${entryId}/quality/check`, {
     method: 'POST',
-    body: JSON.stringify({ entry, nextEntry, force }),
-  });
-}
-
-export async function updateText(wavPath, text) {
-  return request('/api/update-text', {
-    method: 'POST',
-    body: JSON.stringify({ wavPath, text }),
+    body: JSON.stringify({ force }),
   });
 }

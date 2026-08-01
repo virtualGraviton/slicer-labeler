@@ -15,7 +15,7 @@ import (
 type Entry struct {
 	ID        int64     `json:"id" gorm:"primaryKey;autoIncrement"`
 	DatasetID int64     `json:"dataset_id" gorm:"not null;index;uniqueIndex:idx_dataset_wav;constraint:OnDelete:CASCADE"`
-	WavPath   string    `json:"wav_path" gorm:"type:text;not null;uniqueIndex:idx_dataset_wav"`
+	WavPath   string    `json:"wavPath" gorm:"type:text;not null;uniqueIndex:idx_dataset_wav"`
 	Speaker   string    `json:"speaker" gorm:"type:text;not null;default:''"`
 	Language  string    `json:"language" gorm:"type:text;not null;default:'';check:language_valid,language = '' OR language ~ '^[A-Z]{2}$'"`
 	Text      string    `json:"text" gorm:"type:text;not null;default:''"`

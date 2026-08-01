@@ -119,7 +119,7 @@ export default function MergeModal({ entries, globalIndices, onClose, onMergeCom
       const buffers = [];
       let totalDur = 0;
       for (const entry of entries) {
-        const url = getAudioUrl(entry.wavPath);
+        const url = getAudioUrl(entry.id);
         try {
           const res = await fetch(url);
           const arrayBuf = await res.arrayBuffer();

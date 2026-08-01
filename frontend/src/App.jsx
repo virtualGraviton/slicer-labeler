@@ -5,7 +5,7 @@ import SplitModal from './components/SplitModal';
 import MergeModal from './components/MergeModal';
 import DeleteConfirmModal from './components/DeleteConfirmModal';
 import SettingsPanel from './components/SettingsPanel';
-import VolumeSlider from './components/VolumeSlider';
+import LabelSidebar from './components/label/LabelSidebar';
 
 const PAGE_SIZE = 10;
 
@@ -69,15 +69,6 @@ function readStoredVolume() {
   return 1;
 }
 
-function readStoredTheme() {
-  const theme = readStoredPreferences().theme;
-  if (theme === 'light' || theme === 'dark') return theme;
-  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
-    return 'dark';
-  }
-  return 'light';
-}
-
 function isHighRisk(result) {
   return result?.risk === 'high';
 }
@@ -100,8 +91,12 @@ function qualitySignature(entry, nextEntry) {
   return `${entry?.wavPath || ''}\n${entry?.text || ''}\n---NEXT---\n${nextEntry?.wavPath || ''}\n${nextEntry?.text || ''}`;
 }
 
+function findQuality(results, wavPath) {
+  return (results || []).find((r) => r.wavPath === wavPath);
+}
 export default function App({ datasetId }) {
   const [allEntries, setAllEntries] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(readStoredCurrentPage);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [checkedIndices, setCheckedIndices] = useState({});
@@ -116,9 +111,8 @@ export default function App({ datasetId }) {
   const [toasts, setToasts] = useState([]);
   const [jumpInput, setJumpInput] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [qualityResults, setQualityResults] = useState({});
+  const [qualityResults, setQualityResults] = useState([]);
   const [qualityLoading, setQualityLoading] = useState({});
-  const [theme, setTheme] = useState(readStoredTheme);
   const [volume, setVolume] = useState(readStoredVolume);
 
   // Auto-play state
@@ -139,7 +133,6 @@ export default function App({ datasetId }) {
   const mediumPromptActionRef = useRef(null);
   const mediumPromptSkipRef = useRef(null);
   const appContainerRef = useRef(null);
-  const headerRef = useRef(null);
   const scrollContainerRef = useRef(null);
   const autoPlayEnabledRef = useRef(false);
   const autoPlayIdxRef = useRef(-1);
@@ -166,54 +159,26 @@ export default function App({ datasetId }) {
     writeStoredPreferences({
       currentPage: currentPage + 1,
       settings,
-      theme,
       volume,
     });
-  }, [currentPage, settings, theme, volume]);
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
-
-  useEffect(() => {
-    const container = appContainerRef.current;
-    const header = headerRef.current;
-    if (!container || !header) return;
-
-    const updateHeaderHeight = () => {
-      const height = Math.ceil(header.getBoundingClientRect().height);
-      container.style.setProperty('--sticky-header-height', `${height}px`);
-    };
-
-    updateHeaderHeight();
-    let resizeObserver = null;
-    if (typeof ResizeObserver !== 'undefined') {
-      resizeObserver = new ResizeObserver(updateHeaderHeight);
-      resizeObserver.observe(header);
-    }
-    window.addEventListener('resize', updateHeaderHeight);
-
-    return () => {
-      resizeObserver?.disconnect();
-      window.removeEventListener('resize', updateHeaderHeight);
-    };
-  }, [loading]);
+  }, [currentPage, settings, volume]);
 
   const loadData = async () => {
     setLoading(true);
     try {
       const data = await fetchEntries(datasetId, 1, 100000);
-      allEntriesRef.current = data.data || data.entries || [];
+      allEntriesRef.current = data.data || [];
       setAllEntries(allEntriesRef.current);
-      setCurrentPage((page) => Math.min(Math.max(page, 0), Math.max(0, Math.ceil(allEntriesRef.current.length / PAGE_SIZE) - 1)));
+      setTotalCount(data.total || 0);
+      setCurrentPage((page) => Math.min(Math.max(page, 0), Math.max(0, Math.ceil((data.total || allEntriesRef.current.length) / PAGE_SIZE) - 1)));
       try {
         const { results } = await fetchQualityCache(datasetId);
-        setQualityResults(results || {});
+        setQualityResults(results || []);
       } catch (_) {
-        setQualityResults({});
+        setQualityResults([]);
       }
       const orig = {};
-      entries.forEach((e, i) => { orig[i] = e.text; });
+      allEntriesRef.current.forEach((e, i) => { orig[i] = e.text; });
       originalTextsRef.current = orig;
       setHasUnsavedChanges(false);
       setCheckedIndices({});
@@ -225,7 +190,7 @@ export default function App({ datasetId }) {
     }
   };
 
-  const totalPages = Math.max(1, Math.ceil(allEntries.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil((totalCount || allEntries.length) / PAGE_SIZE));
   const pageEntries = allEntries.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
 
   useEffect(() => {
@@ -541,7 +506,7 @@ export default function App({ datasetId }) {
     }
 
     const nextEntry = allEntries[nextGlobalIdx];
-    const cachedQuality = nextEntry ? qualityResults[nextEntry.wavPath] : null;
+    const cachedQuality = nextEntry ? findQuality(qualityResults, nextEntry.wavPath) : null;
     if (isHighRisk(cachedQuality)) {
       stopAutoPlayForRisk(nextGlobalIdx, cachedQuality);
       return;
@@ -667,15 +632,15 @@ export default function App({ datasetId }) {
     const nextEntry = entriesSnapshot[globalIndex + 1] || null;
     const requestSignature = qualitySignature(entry, nextEntry);
 
-    if (!force && qualityResults[key]) {
-      if (autoPlayEnabledRef.current && isHighRisk(qualityResults[key])) {
-        stopAutoPlayForRisk(globalIndex, qualityResults[key]);
+    if (!force && findQuality(qualityResults, key)) {
+      if (autoPlayEnabledRef.current && isHighRisk(findQuality(qualityResults, key))) {
+        stopAutoPlayForRisk(globalIndex, findQuality(qualityResults, key));
       } else if (autoPlayEnabledRef.current) {
         const gate = autoPlayGateRef.current[globalIndex] || {};
         autoPlayGateRef.current[globalIndex] = {
           ...gate,
           qualityDone: true,
-          qualityResult: qualityResults[key],
+          qualityResult: findQuality(qualityResults, key),
         };
         continueAutoPlayIfReady(globalIndex);
       }
@@ -687,12 +652,12 @@ export default function App({ datasetId }) {
     setQualityLoading((prev) => ({ ...prev, [key]: true }));
 
     try {
-      const { result } = await checkQuality({ entry, nextEntry, force });
+      const { result } = await checkQuality(entry.id, { force });
       const latestEntries = allEntriesRef.current;
       const latestSignature = qualitySignature(latestEntries[globalIndex], latestEntries[globalIndex + 1] || null);
       if (latestSignature !== requestSignature) return;
 
-      setQualityResults((prev) => ({ ...prev, [key]: result }));
+      setQualityResults((prev) => [...prev.filter((r) => r.wavPath !== key), result]);
       if (autoPlayEnabledRef.current && isHighRisk(result)) {
         stopAutoPlayForRisk(globalIndex, result);
       } else {
@@ -824,15 +789,15 @@ export default function App({ datasetId }) {
     autoPlayGateRef.current = {};
     focusItemsAfterListChange([globalIndex, globalIndex + 1], globalIndex);
     setQualityResults((prev) => {
-      const updated = { ...prev };
+      const removeKeys = new Set();
       [globalIndex - 1, globalIndex, globalIndex + 1].forEach((idx) => {
-        if (current[idx]?.wavPath) delete updated[current[idx].wavPath];
-        if (next[idx]?.wavPath) delete updated[next[idx].wavPath];
+        if (current[idx]?.wavPath) removeKeys.add(current[idx].wavPath);
+        if (next[idx]?.wavPath) removeKeys.add(next[idx].wavPath);
       });
-      if (originalEntry?.wavPath) delete updated[originalEntry.wavPath];
-      delete updated[first.wavPath];
-      delete updated[second.wavPath];
-      return updated;
+      if (originalEntry?.wavPath) removeKeys.add(originalEntry.wavPath);
+      removeKeys.add(first.wavPath);
+      removeKeys.add(second.wavPath);
+      return prev.filter((r) => !removeKeys.has(r.wavPath));
     });
 
     saveEntries(datasetId, next).then(() => {
@@ -886,16 +851,16 @@ export default function App({ datasetId }) {
     autoPlayGateRef.current = {};
     focusItemsAfterListChange([firstIdx], firstIdx);
     setQualityResults((prev) => {
-      const updated = { ...prev };
+      const removeKeys = new Set();
       sorted.forEach((idx) => {
-        if (current[idx]?.wavPath) delete updated[current[idx].wavPath];
+        if (current[idx]?.wavPath) removeKeys.add(current[idx].wavPath);
       });
       [firstIdx - 1, firstIdx].forEach((idx) => {
-        if (current[idx]?.wavPath) delete updated[current[idx].wavPath];
-        if (next[idx]?.wavPath) delete updated[next[idx].wavPath];
+        if (current[idx]?.wavPath) removeKeys.add(current[idx].wavPath);
+        if (next[idx]?.wavPath) removeKeys.add(next[idx].wavPath);
       });
-      delete updated[merged.wavPath];
-      return updated;
+      removeKeys.add(merged.wavPath);
+      return prev.filter((r) => !removeKeys.has(r.wavPath));
     });
 
     saveEntries(datasetId, next).then(() => {
@@ -950,10 +915,9 @@ export default function App({ datasetId }) {
       autoPlayGateRef.current = {};
       setCurrentPage((page) => Math.min(Math.max(page, 0), Math.max(0, Math.ceil(next.length / PAGE_SIZE) - 1)));
       setQualityResults((prev) => {
-        const updated = { ...prev };
-        if (current[deleteIndex - 1]?.wavPath) delete updated[current[deleteIndex - 1].wavPath];
-        delete updated[deleteEntry.wavPath];
-        return updated;
+        const removeKeys = new Set([deleteEntry.wavPath]);
+        if (current[deleteIndex - 1]?.wavPath) removeKeys.add(current[deleteIndex - 1].wavPath);
+        return prev.filter((r) => !removeKeys.has(r.wavPath));
       });
 
       const orig = {};
@@ -1007,56 +971,29 @@ export default function App({ datasetId }) {
   const page = (i) => Math.floor(i / PAGE_SIZE) + 1;
 
   return (
-    <div className="app-container" ref={appContainerRef}>
-      {/* Header */}
-      <header className="app-header" ref={headerRef}>
-        <h1 className="app-title">Slicer Labeler</h1>
-        <span className="version-tag" title="构建版本">{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__.slice(0, 7) : 'dev'}</span>
-        <div className="header-right">
-          {hasUnsavedChanges && (
-            <span style={{ color: 'var(--warning)', fontSize: 13 }}>
-              <span className="unsaved-dot" />
-              未保存
-            </span>
-          )}
-          <button
-            className={`btn ${autoPlayOn ? 'btn-danger' : 'btn-accent'}`}
-            onClick={toggleAutoPlay}
-          >
-            {autoPlayOn ? '⏹ 停止自动' : '▶ 自动播放'}
-          </button>
-          <button
-            className="btn"
-            onClick={() => setSettingsOpen(true)}
-            title="自动播放设置"
-          >
-            ⚙
-          </button>
-          <button
-            className="btn theme-toggle-btn"
-            onClick={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')}
-            title={theme === 'dark' ? '切换到亮色风格' : '切换到暗色风格'}
-          >
-            {theme === 'dark' ? '☀ 亮色' : '☾ 暗色'}
-          </button>
-          <button
-            className="btn btn-accent"
-            onClick={handleSave}
-            disabled={!hasUnsavedChanges}
-          >
-            保存 (Ctrl+S)
-          </button>
-          <button
-            className="btn btn-success"
-            onClick={handleMergeClick}
-            disabled={checkedGlobalIndices.length < 2}
-          >
-            合并选中 ({checkedGlobalIndices.length})
-          </button>
-        </div>
-      </header>
+    <div className="flex gap-0 min-h-[calc(100vh-56px)]" ref={appContainerRef}>
+      {/* Left sidebar */}
+      <div className="p-4">
+        <LabelSidebar
+          hasUnsavedChanges={hasUnsavedChanges}
+          autoPlayOn={autoPlayOn}
+          onToggleAutoPlay={toggleAutoPlay}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onSave={handleSave}
+          checkedCount={checkedGlobalIndices.length}
+          onMergeClick={handleMergeClick}
+          volume={volume}
+          onVolumeChange={handleVolumeChange}
+          totalCount={totalCount || allEntries.length}
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+        />
+      </div>
 
-      {mediumRiskPrompt && (
+      {/* Main content */}
+      <div className="flex-1 min-w-0 p-4">
+        {mediumRiskPrompt && (
         <div className="medium-risk-prompt">
           <div className="medium-risk-copy">
             <strong>中风险条目 #{mediumRiskPrompt.index + 1}</strong>
@@ -1135,7 +1072,7 @@ export default function App({ datasetId }) {
           <button className="btn btn-sm" onClick={handleJumpPage}>跳转</button>
         </div>
         <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-          共 {allEntries.length} 条
+          共 {totalCount || allEntries.length} 条
         </span>
       </div>
 
@@ -1165,7 +1102,7 @@ export default function App({ datasetId }) {
               preferPopoverBelow={i < 2}
               countdownSeconds={countdownIdx === globalIdx ? countdownVal : null}
               countdownTotalSeconds={countdownIdx === globalIdx ? countdownTotalVal : null}
-              qualityResult={qualityResults[entry.wavPath]}
+              qualityResult={findQuality(qualityResults, entry.wavPath)}
               qualityLoading={!!qualityLoading[entry.wavPath]}
               volume={volume}
             />
@@ -1271,8 +1208,7 @@ export default function App({ datasetId }) {
         />
       )}
 
-      {/* Volume slider */}
-      <VolumeSlider volume={volume} onChange={handleVolumeChange} />
+      {/* Volume slider — integrated into sidebar */}
 
       {/* Toast notifications */}
       <div className="status-bar">
@@ -1281,6 +1217,7 @@ export default function App({ datasetId }) {
             {t.message}
           </div>
         ))}
+      </div>
       </div>
     </div>
   );

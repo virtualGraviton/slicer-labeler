@@ -47,14 +47,14 @@ export default function ItemRow({
   const info = parseFilename(entry.wavPath);
 
   useEffect(() => {
-    const url = getAudioUrl(entry.wavPath);
+    const url = getAudioUrl(entry.id);
     setAudioUrl(url);
-  }, [entry.wavPath]);
+  }, [entry.id]);
 
   useEffect(() => {
     let cancelled = false;
     setAudioBuffer(null);
-    const url = getAudioUrl(entry.wavPath);
+    const url = getAudioUrl(entry.id);
     fetch(url)
       .then((res) => res.arrayBuffer())
       .then((arrayBuf) => {
