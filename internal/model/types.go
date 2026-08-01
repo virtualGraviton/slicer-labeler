@@ -48,13 +48,6 @@ type UpdateEntryRequest struct {
 	Text string `json:"text"`
 }
 
-// --- Quality Request/Response ---
-
-// CheckQualityRequest is the body for POST /api/entries/:entryId/quality/check.
-type CheckQualityRequest struct {
-	Force bool `json:"force"`
-}
-
 // --- Split Request/Response ---
 
 // SplitRequest is the body for POST /api/entries/:entryId/split.

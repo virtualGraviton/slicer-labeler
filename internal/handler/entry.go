@@ -11,12 +11,11 @@ import (
 )
 
 type EntryHandler struct {
-	store       *db.EntryStore
-	qualityStore *db.QualityStore
+	store *db.EntryStore
 }
 
-func NewEntryHandler(store *db.EntryStore, qualityStore *db.QualityStore) *EntryHandler {
-	return &EntryHandler{store: store, qualityStore: qualityStore}
+func NewEntryHandler(store *db.EntryStore) *EntryHandler {
+	return &EntryHandler{store: store}
 }
 
 func (h *EntryHandler) List(c echo.Context) error {
@@ -96,9 +95,6 @@ func (h *EntryHandler) Delete(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid entryId"})
 	}
-
-	// Delete quality result first (cascade handles this, but explicit is safer)
-	_ = h.qualityStore.DeleteByEntryID(c.Request().Context(), id)
 
 	deleted, err := h.store.Delete(c.Request().Context(), id)
 	if err != nil {

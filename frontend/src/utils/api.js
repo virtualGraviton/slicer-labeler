@@ -109,16 +109,3 @@ export async function polishMergeText({ entries, hardMergedText, speaker, langua
     body: JSON.stringify({ entries, hardMergedText, speaker, language }),
   });
 }
-
-// ─── Quality ───
-
-export async function fetchQualityCache(datasetId, page = 1, pageSize = 10) {
-  return request(`/api/datasets/${datasetId}/quality/cache?page=${page}&page_size=${pageSize}`);
-}
-
-export async function checkQuality(entryId, { force = false } = {}) {
-  return request(`/api/entries/${entryId}/quality/check`, {
-    method: 'POST',
-    body: JSON.stringify({ force }),
-  });
-}

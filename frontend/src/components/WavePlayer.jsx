@@ -178,7 +178,7 @@ export default function WavePlayer({
     }
   }, [stopRAF, redrawWaveform]);
 
-  // ---- Stop trigger from parent, used when auto-play hits a risky item ----
+  // ---- Stop trigger from parent (auto-play stopped by user) ----
   useEffect(() => {
     const nonce = stopSignal?.nonce ?? 0;
     const targetIdx = stopSignal?.targetIdx;

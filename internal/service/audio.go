@@ -13,20 +13,6 @@ import (
 	"strings"
 )
 
-// AudioInfo contains audio analysis results.
-type AudioInfo struct {
-	DurationSec        float64
-	LeadingSilenceMs   int
-	TrailingSilenceMs  int
-	SilenceEvents      int
-	TailWindowMs       int
-	TailMeanDb         *float64
-	TailMaxDb          *float64
-	TailEnergyHigh     bool
-	BoundarySuspicious bool
-	Reasons            []string
-}
-
 // AudioService performs ffmpeg-based audio analysis/editing on byte streams.
 type AudioService struct {
 	storage *StorageService
@@ -34,55 +20,6 @@ type AudioService struct {
 
 func NewAudioService(storage *StorageService) *AudioService {
 	return &AudioService{storage: storage}
-}
-
-// --- Analysis (pure in-memory via pipe) ---
-
-// AnalyzeBoundary downloads audio from storage and runs silence + energy analysis fully in memory.
-func (s *AudioService) AnalyzeBoundary(ctx context.Context, modelName, datasetName, wavPath string) (*AudioInfo, error) {
-	data, err := s.storage.DownloadBytes(ctx, modelName, datasetName, wavPath)
-	if err != nil {
-		return nil, fmt.Errorf("download: %w", err)
-	}
-
-	durationSec, err := getDurationFromBytes(data, wavPath)
-	if err != nil {
-		durationSec = 0
-	}
-
-	silence, err := parseSilenceBytes(data, durationSec)
-	if err != nil {
-		return nil, fmt.Errorf("silence analysis: %w", err)
-	}
-
-	tail, err := analyzeTailEnergyBytes(data, durationSec)
-	if err != nil {
-		return nil, fmt.Errorf("tail energy analysis: %w", err)
-	}
-
-	info := &AudioInfo{
-		DurationSec:       math.Round(durationSec*1000) / 1000,
-		LeadingSilenceMs:  silence.LeadingSilenceMs,
-		TrailingSilenceMs: silence.TrailingSilenceMs,
-		SilenceEvents:     silence.SilenceEvents,
-		TailWindowMs:      tail.windowMs,
-		TailMeanDb:        tail.meanDb,
-		TailMaxDb:         tail.maxDb,
-		TailEnergyHigh:    tail.energyHigh,
-	}
-
-	info.BoundarySuspicious = silence.TrailingSilenceMs < 100 && tail.energyHigh
-
-	var reasons []string
-	if info.BoundarySuspicious {
-		reasons = append(reasons, fmt.Sprintf("尾部静音 %dms 且尾部能量偏高", silence.TrailingSilenceMs))
-	}
-	if silence.LeadingSilenceMs < 40 {
-		reasons = append(reasons, fmt.Sprintf("句首停顿较短 (%dms)", silence.LeadingSilenceMs))
-	}
-	info.Reasons = reasons
-
-	return info, nil
 }
 
 // --- Split: download → pipe → upload two WAVs ---
@@ -166,100 +103,6 @@ func (s *AudioService) MergeAndUpload(ctx context.Context, modelName, datasetNam
 
 // --- Low-level in-memory ffmpeg operations ---
 
-func getDurationFromBytes(data []byte, wavPath string) (float64, error) {
-	cmd := exec.Command("ffprobe", "-v", "error", "-show_entries", "format=duration",
-		"-of", "default=noprint_wrappers=1:nokey=1", "pipe:0")
-	cmd.Stdin = bytes.NewReader(data)
-	out, err := cmd.Output()
-	if err == nil {
-		dur, parseErr := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
-		if parseErr == nil && !math.IsInf(dur, 0) && dur > 0 {
-			return dur, nil
-		}
-	}
-	// Fallback to filename-based estimation
-	return durationFromFilename(wavPath), nil
-}
-
-func parseSilenceBytes(data []byte, durationSec float64) (*silenceResult, error) {
-	cmd := exec.Command("ffmpeg", "-hide_banner", "-nostats",
-		"-i", "pipe:0",
-		"-af", "silencedetect=noise=-35dB:d=0.02",
-		"-f", "null", "-")
-	cmd.Stdin = bytes.NewReader(data)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("silencedetect: %s", string(out))
-	}
-
-	log := string(out)
-	starts := parseSilenceStarts(log)
-	ends := parseSilenceEnds(log)
-
-	result := &silenceResult{SilenceEvents: len(starts)}
-
-	if len(starts) > 0 && starts[0] <= 0.03 {
-		for _, e := range ends {
-			if e.end >= starts[0] {
-				result.LeadingSilenceMs = int(math.Round(e.duration * 1000))
-				break
-			}
-		}
-	}
-
-	if len(starts) > 0 {
-		lastStart := starts[len(starts)-1]
-		var endAfter *silenceEnd
-		for i := range ends {
-			if ends[i].end >= lastStart {
-				endAfter = &ends[i]
-			}
-		}
-		if endAfter == nil {
-			result.TrailingSilenceMs = int(math.Max(0, math.Round((durationSec-lastStart)*1000)))
-		} else if durationSec-endAfter.end <= 0.05 {
-			result.TrailingSilenceMs = int(math.Round(endAfter.duration * 1000))
-		}
-	}
-	return result, nil
-}
-
-func analyzeTailEnergyBytes(data []byte, durationSec float64) (*tailEnergyResult, error) {
-	tailSec := math.Min(0.12, math.Max(0.03, durationSec))
-	if tailSec < 0.03 {
-		tailSec = 0.12
-	}
-
-	cmd := exec.Command("ffmpeg", "-hide_banner", "-nostats",
-		"-sseof", fmt.Sprintf("-%0.3f", tailSec),
-		"-i", "pipe:0",
-		"-af", "volumedetect",
-		"-f", "null", "-")
-	cmd.Stdin = bytes.NewReader(data)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("volumedetect: %s", string(out))
-	}
-
-	log := string(out)
-	result := &tailEnergyResult{windowMs: int(math.Round(tailSec * 1000))}
-
-	if m := regexp.MustCompile(`mean_volume:\s*(-?[\d.]+)\s*dB`).FindStringSubmatch(log); len(m) > 1 {
-		v, _ := strconv.ParseFloat(m[1], 64)
-		result.meanDb = &v
-	}
-	if m := regexp.MustCompile(`max_volume:\s*(-?[\d.]+)\s*dB`).FindStringSubmatch(log); len(m) > 1 {
-		v, _ := strconv.ParseFloat(m[1], 64)
-		result.maxDb = &v
-	}
-
-	meanHigh := result.meanDb != nil && *result.meanDb > -38
-	maxHigh := result.maxDb != nil && *result.maxDb > -16
-	result.energyHigh = meanHigh || maxHigh
-
-	return result, nil
-}
-
 func splitBytes(ctx context.Context, data []byte, splitTime float64) (first []byte, second []byte, err error) {
 	// First part
 	cmd1 := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", "pipe:0", "-t", fmt.Sprintf("%f", splitTime), "-f", "wav", "pipe:1")
@@ -320,45 +163,4 @@ func ParseFilename(basename string) (bvid, p, ch, date, timePart, start, end str
 		return "", "", "", "", "", "", "", false
 	}
 	return matches[1], matches[2], matches[3], matches[4], matches[5], matches[6], matches[7], true
-}
-
-// --- Internal types ---
-
-type silenceResult struct {
-	LeadingSilenceMs  int
-	TrailingSilenceMs int
-	SilenceEvents     int
-}
-
-type silenceEnd struct {
-	end      float64
-	duration float64
-}
-
-type tailEnergyResult struct {
-	windowMs   int
-	meanDb     *float64
-	maxDb      *float64
-	energyHigh bool
-}
-
-func parseSilenceStarts(log string) []float64 {
-	re := regexp.MustCompile(`silence_start:\s*([\d.]+)`)
-	var starts []float64
-	for _, m := range re.FindAllStringSubmatch(log, -1) {
-		v, _ := strconv.ParseFloat(m[1], 64)
-		starts = append(starts, v)
-	}
-	return starts
-}
-
-func parseSilenceEnds(log string) []silenceEnd {
-	re := regexp.MustCompile(`silence_end:\s*([\d.]+)\s*\|\s*silence_duration:\s*([\d.]+)`)
-	var ends []silenceEnd
-	for _, m := range re.FindAllStringSubmatch(log, -1) {
-		end, _ := strconv.ParseFloat(m[1], 64)
-		dur, _ := strconv.ParseFloat(m[2], 64)
-		ends = append(ends, silenceEnd{end: end, duration: dur})
-	}
-	return ends
 }

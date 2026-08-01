@@ -33,7 +33,7 @@ func NewDB(dsn string) (*gorm.DB, error) {
 
 // AutoMigrate creates or updates tables to match the model structs.
 func AutoMigrate(db *gorm.DB) error {
-	if err := db.AutoMigrate(&Model{}, &Dataset{}, &Entry{}, &QualityResult{}); err != nil {
+	if err := db.AutoMigrate(&Model{}, &Dataset{}, &Entry{}); err != nil {
 		return err
 	}
 	// Ensure CHECK constraint exists on entries.language (GORM tag may or may not apply it)

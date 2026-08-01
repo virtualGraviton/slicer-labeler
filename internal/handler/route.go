@@ -17,7 +17,6 @@ func RegisterRoutes(e *echo.Echo, gormDB *gorm.DB, cfg *config.Config) {
 	modelStore := db.NewModelStore(gormDB)
 	datasetStore := db.NewDatasetStore(gormDB)
 	entryStore := db.NewEntryStore(gormDB)
-	qualityStore := db.NewQualityStore(gormDB)
 
 	// Services
 	storageSvc, err := service.NewStorageService(cfg.StorageEndpoint, cfg.StorageBucket, cfg.StorageAccessKey, cfg.StorageSecretKey, cfg.StoragePrefix)
@@ -26,17 +25,15 @@ func RegisterRoutes(e *echo.Echo, gormDB *gorm.DB, cfg *config.Config) {
 	}
 	audioSvc := service.NewAudioService(storageSvc)
 	deepseekSvc := service.NewDeepSeekService(cfg.DeepSeekAPIKey, cfg.DeepSeekAPIURL, cfg.DeepSeekModel)
-	qualitySvc := service.NewQualityService(audioSvc, deepseekSvc, qualityStore, entryStore)
 
 	// Handlers
 	healthH := NewHealthHandler(gormDB)
 	modelH := NewModelHandler(modelStore)
 	datasetH := NewDatasetHandler(datasetStore)
-	entryH := NewEntryHandler(entryStore, qualityStore)
+	entryH := NewEntryHandler(entryStore)
 	audioH := NewAudioHandler(entryStore, datasetStore, modelStore, storageSvc)
 	splitH := NewSplitHandler(entryStore, datasetStore, modelStore, audioSvc)
 	mergeH := NewMergeHandler(entryStore, datasetStore, modelStore, audioSvc, deepseekSvc)
-	qualityH := NewQualityHandler(entryStore, qualityStore, datasetStore, modelStore, qualitySvc)
 
 	api := e.Group("/api")
 
@@ -72,9 +69,4 @@ func RegisterRoutes(e *echo.Echo, gormDB *gorm.DB, cfg *config.Config) {
 	// Merge
 	api.POST("/entries/merge", mergeH.Merge)
 	api.POST("/entries/merge/polish", mergeH.Polish)
-
-	// Quality
-	api.POST("/entries/:entryId/quality/check", qualityH.Check)
-	api.GET("/datasets/:datasetId/quality/cache", qualityH.Cache)
-	api.POST("/datasets/:datasetId/quality/batch-check", qualityH.BatchCheck)
 }

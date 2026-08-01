@@ -2,7 +2,6 @@ package service
 
 import (
 	"bytes"
-	"crypto/sha1"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"slicer-labeler/internal/db"
 	"slicer-labeler/internal/model"
 )
 
@@ -35,8 +33,8 @@ func (s *DeepSeekService) GetModel() string {
 }
 
 type deepSeekMessage struct {
-	Role    string            `json:"role"`
-	Content string            `json:"content"`
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 type deepSeekRequest struct {
@@ -54,75 +52,6 @@ type deepSeekResponse struct {
 			Content string `json:"content"`
 		} `json:"message"`
 	} `json:"choices"`
-}
-
-// ComputeTextHash generates a hash for the entry + nextEntry pair for cache validation.
-func ComputeTextHash(entry, nextEntry *db.Entry) string {
-	h := sha1.New()
-	h.Write([]byte(fmt.Sprintf("%s\n%s\n---NEXT---\n", entry.WavPath, entry.Text)))
-	if nextEntry != nil {
-		h.Write([]byte(fmt.Sprintf("%s\n%s", nextEntry.WavPath, nextEntry.Text)))
-	}
-	return fmt.Sprintf("%x", h.Sum(nil))
-}
-
-// AnalyzeTextRisk sends text to DeepSeek for grammar/semantic analysis.
-func (s *DeepSeekService) AnalyzeTextRisk(entry, nextEntry *db.Entry) (*db.TextRisk, error) {
-	if s.apiKey == "" {
-		return nil, fmt.Errorf("未配置 DeepSeek API Key")
-	}
-
-	nextText := ""
-	if nextEntry != nil {
-		nextText = nextEntry.Text
-	}
-
-	userContent, _ := json.Marshal(map[string]interface{}{
-		"task":         "判断 current_text 是否在语法上是一个自闭环的完整句。",
-		"speaker":      entry.Speaker,
-		"language":     entry.Language,
-		"current_text": entry.Text,
-		"next_text":    nextText,
-	})
-
-	payload := deepSeekRequest{
-		Model:          s.model,
-		Thinking:       map[string]string{"type": "disabled"},
-		ResponseFormat: map[string]string{"type": "json_object"},
-		Temperature:    0,
-		MaxTokens:      500,
-		Messages: []deepSeekMessage{
-			{
-				Role:    "system",
-				Content: "你是语音切片数据质检器。判断 current_text 在语法上是否是一个自闭环的完整句。必须只输出合法 json 对象。json 字段: grammatically_complete(boolean), current_text_grammar_broken(boolean), semantically_continuous(boolean), confidence(number 0-1), reason(string)。",
-			},
-			{Role: "user", Content: string(userContent)},
-		},
-	}
-
-	data, err := s.post(payload)
-	if err != nil {
-		return nil, fmt.Errorf("DeepSeek API: %w", err)
-	}
-
-	content := data.Choices[0].Message.Content
-	parsed, err := parseDeepSeekJSON(content)
-	if err != nil {
-		return nil, fmt.Errorf("parse DeepSeek response: %w", err)
-	}
-
-	grammarBroken := getBool(parsed, "current_text_grammar_broken") || !getBool(parsed, "grammatically_complete")
-	semanticContinuous := getBool(parsed, "semantically_continuous") || getBool(parsed, "should_merge_next") || getBool(parsed, "next_is_continuation")
-	confidence := clampFloat(getFloat(parsed, "confidence"), 0, 1)
-
-	return &db.TextRisk{
-		TextComplete:          getBool(parsed, "grammatically_complete"),
-		CurrentTextUnfinished: grammarBroken,
-		ShouldMergeNext:       semanticContinuous,
-		NextIsContinuation:    semanticContinuous,
-		Confidence:            confidence,
-		Reason:                truncateStr(getStr(parsed, "reason"), 500),
-	}, nil
 }
 
 // PolishMergeText uses DeepSeek to polish merged transcript text.
@@ -276,28 +205,6 @@ func parseDeepSeekJSON(content string) (map[string]interface{}, error) {
 	return parsed, nil
 }
 
-func getBool(m map[string]interface{}, key string) bool {
-	if v, ok := m[key]; ok {
-		if b, ok := v.(bool); ok {
-			return b
-		}
-	}
-	return false
-}
-
-func getFloat(m map[string]interface{}, key string) float64 {
-	if v, ok := m[key]; ok {
-		switch n := v.(type) {
-		case float64:
-			return n
-		case json.Number:
-			f, _ := n.Float64()
-			return f
-		}
-	}
-	return 0
-}
-
 func getStr(m map[string]interface{}, key string) string {
 	if v, ok := m[key]; ok {
 		if s, ok := v.(string); ok {
@@ -305,16 +212,6 @@ func getStr(m map[string]interface{}, key string) string {
 		}
 	}
 	return ""
-}
-
-func clampFloat(v, min, max float64) float64 {
-	if v < min {
-		return min
-	}
-	if v > max {
-		return max
-	}
-	return v
 }
 
 func truncateStr(s string, maxLen int) string {
