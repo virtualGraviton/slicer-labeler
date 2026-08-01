@@ -1,11 +1,12 @@
 import { useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Square, Settings, GitMerge, Volume2 } from 'lucide-react';
+import { Play, Square, Settings, GitMerge, Volume2, ArrowLeft } from 'lucide-react';
 
 export default function LabelSidebar({
   autoPlayOn,
   onToggleAutoPlay,
   onOpenSettings,
+  onBack,
   checkedCount,
   onMergeClick,
   volume,
@@ -48,6 +49,16 @@ export default function LabelSidebar({
       className="w-48 shrink-0 flex flex-col gap-3 rounded-2xl border border-gray-200 dark:border-gray-700
         bg-white/60 dark:bg-gray-900/50 backdrop-blur-sm p-4 self-start sticky top-[72px]"
     >
+      {/* 返回数据集 */}
+      <button
+        onClick={onBack}
+        className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg
+          text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+      >
+        <ArrowLeft size={14} />
+        返回数据集
+      </button>
+
       {/* 自动播放 */}
       <button
         onClick={onToggleAutoPlay}

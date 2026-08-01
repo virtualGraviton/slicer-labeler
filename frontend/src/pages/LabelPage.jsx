@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
 import { deleteEntry as deleteEntryApi, fetchEntries, updateEntry } from '../utils/api';
 import ItemRow from '../components/ItemRow';
 import SplitModal from '../components/SplitModal';
@@ -620,15 +619,6 @@ export default function LabelPage() {
 
   return (
     <>
-      {/* Back button */}
-      <button
-        onClick={() => navigate(`/models/${datasetId ? '..' : '/'}`)}
-        className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-teal-600 dark:text-gray-400 dark:hover:text-teal-400 transition-colors mb-4"
-      >
-        <ArrowLeft size={14} />
-        返回数据集
-      </button>
-
       <div className="flex gap-0 min-h-[calc(100vh-56px)]" ref={appContainerRef}>
       {/* Left sidebar */}
       <div className="p-4">
@@ -636,6 +626,7 @@ export default function LabelPage() {
           autoPlayOn={autoPlayOn}
           onToggleAutoPlay={toggleAutoPlay}
           onOpenSettings={() => setSettingsOpen(true)}
+          onBack={() => navigate(`/models/${datasetId ? '..' : '/'}`)}
           checkedCount={checkedGlobalIndices.length}
           onMergeClick={handleMergeClick}
           volume={volume}
