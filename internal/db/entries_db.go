@@ -19,6 +19,7 @@ type Entry struct {
 	Speaker   string    `json:"speaker" gorm:"type:text;not null;default:''"`
 	Language  string    `json:"language" gorm:"type:text;not null;default:'';check:language_valid,language = '' OR language ~ '^[A-Z]{2}$'"`
 	Text      string    `json:"text" gorm:"type:text;not null;default:''"`
+	Deleted   bool      `json:"deleted" gorm:"not null;default:false"`
 	CreatedAt time.Time `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 	Dataset   Dataset   `json:"-" gorm:"foreignKey:DatasetID;constraint:OnDelete:CASCADE"`
@@ -114,10 +115,12 @@ func (s *EntryStore) UpdateText(ctx context.Context, id int64, text string) (*En
 	return s.GetByID(ctx, id)
 }
 
+// Delete soft-deletes an entry by marking it deleted. The audio file in object
+// storage is intentionally left untouched.
 func (s *EntryStore) Delete(ctx context.Context, id int64) (bool, error) {
-	result := s.db.WithContext(ctx).Delete(&Entry{}, id)
+	result := s.db.WithContext(ctx).Model(&Entry{}).Where("id = ?", id).Update("deleted", true)
 	if result.Error != nil {
-		return false, fmt.Errorf("delete entry %d: %w", id, result.Error)
+		return false, fmt.Errorf("soft delete entry %d: %w", id, result.Error)
 	}
 	return result.RowsAffected > 0, nil
 }
@@ -168,8 +171,8 @@ func (s *EntryStore) SplitReplace(ctx context.Context, datasetID, originalID int
 		if err != nil {
 			return err
 		}
-		if err := tx.Delete(&Entry{}, originalID).Error; err != nil {
-			return fmt.Errorf("delete original entry %d: %w", originalID, err)
+		if err := tx.Model(&Entry{}).Where("id = ?", originalID).Update("deleted", true).Error; err != nil {
+			return fmt.Errorf("soft delete original entry %d: %w", originalID, err)
 		}
 		out = []Entry{*f, *sc}
 		return nil
@@ -185,8 +188,8 @@ func (s *EntryStore) MergeReplace(ctx context.Context, datasetID int64, sourceID
 	var out *Entry
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if len(sourceIDs) > 0 {
-			if err := tx.Delete(&Entry{}, sourceIDs).Error; err != nil {
-				return fmt.Errorf("delete source entries: %w", err)
+			if err := tx.Model(&Entry{}).Where("id IN ?", sourceIDs).Update("deleted", true).Error; err != nil {
+				return fmt.Errorf("soft delete source entries: %w", err)
 			}
 		}
 		m, err := createEntryTx(tx, datasetID, merged)
