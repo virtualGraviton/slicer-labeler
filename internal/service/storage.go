@@ -58,18 +58,28 @@ func (s *StorageService) objectKey(modelName, datasetName, filename string) stri
 
 // DownloadBytes fetches an audio file from storage as raw bytes.
 func (s *StorageService) DownloadBytes(ctx context.Context, modelName, datasetName, wavPath string) ([]byte, error) {
+	reader, err := s.DownloadStream(ctx, modelName, datasetName, wavPath)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", s.objectKey(modelName, datasetName, filepath.Base(wavPath)), err)
+	}
+	return data, nil
+}
+
+// DownloadStream returns a streaming reader for an object in storage.
+// The caller must close the reader when done.
+func (s *StorageService) DownloadStream(ctx context.Context, modelName, datasetName, wavPath string) (io.ReadCloser, error) {
 	key := s.objectKey(modelName, datasetName, filepath.Base(wavPath))
 	obj, err := s.client.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("download %s: %w", key, err)
 	}
-	defer obj.Close()
-
-	data, err := io.ReadAll(obj)
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", key, err)
-	}
-	return data, nil
+	return obj, nil
 }
 
 // UploadBytes writes raw bytes to an object storage path.

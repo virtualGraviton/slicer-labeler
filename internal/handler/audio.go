@@ -55,6 +55,11 @@ func (h *AudioHandler) GetAudio(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "model not found"})
 	}
 
-	url := h.storage.GenerateURL(model.Name, dataset.Name, entry.WavPath)
-	return c.Redirect(http.StatusFound, url)
+	reader, err := h.storage.DownloadStream(c.Request().Context(), model.Name, dataset.Name, entry.WavPath)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to fetch audio: " + err.Error()})
+	}
+	defer reader.Close()
+
+	return c.Stream(http.StatusOK, "audio/wav", reader)
 }
