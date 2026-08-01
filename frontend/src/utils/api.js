@@ -112,8 +112,8 @@ export async function polishMergeText({ entries, hardMergedText, speaker, langua
 
 // ─── Quality ───
 
-export async function fetchQualityCache(datasetId) {
-  return request(`/api/datasets/${datasetId}/quality/cache`);
+export async function fetchQualityCache(datasetId, page = 1, pageSize = 10) {
+  return request(`/api/datasets/${datasetId}/quality/cache?page=${page}&page_size=${pageSize}`);
 }
 
 export async function checkQuality(entryId, { force = false } = {}) {

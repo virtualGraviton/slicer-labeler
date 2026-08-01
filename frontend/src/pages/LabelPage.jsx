@@ -181,7 +181,10 @@ export default function LabelPage() {
   const pageEntries = (entries.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE) || []).filter(Boolean);
 
   const loadPage = useCallback(async (page) => {
-    const data = await fetchEntries(datasetId, page + 1, PAGE_SIZE);
+    const [data, qualityData] = await Promise.all([
+      fetchEntries(datasetId, page + 1, PAGE_SIZE),
+      fetchQualityCache(datasetId, page + 1, PAGE_SIZE).catch(() => null),
+    ]);
     setEntries((prev) => {
       const next = prev.slice();
       (data.data || []).forEach((entry, i) => {
@@ -190,6 +193,11 @@ export default function LabelPage() {
       return next;
     });
     if (typeof data.total === 'number') setTotal(data.total);
+    setQualityResults((prev) => {
+      const known = new Set(prev.map((r) => r.wavPath));
+      const incoming = (qualityData?.data || []).filter((r) => r.wavPath && !known.has(r.wavPath));
+      return incoming.length ? [...prev, ...incoming] : prev;
+    });
     loadedPagesRef.current.add(page);
     return data;
   }, [datasetId]);
@@ -217,13 +225,8 @@ export default function LabelPage() {
     try {
       loadedPagesRef.current.clear();
       setEntries([]);
+      setQualityResults([]);
       await loadPage(0);
-      try {
-        const { results } = await fetchQualityCache(datasetId);
-        setQualityResults(Array.isArray(results) ? results : []);
-      } catch (_) {
-        setQualityResults([]);
-      }
       setCheckedIndices({});
       setError(null);
     } catch (err) {

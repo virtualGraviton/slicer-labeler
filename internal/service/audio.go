@@ -265,10 +265,11 @@ func splitBytes(ctx context.Context, data []byte, splitTime float64) (first []by
 	cmd1 := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", "pipe:0", "-t", fmt.Sprintf("%f", splitTime), "-f", "wav", "pipe:1")
 	cmd1.Stdin = bytes.NewReader(data)
 	var buf1 bytes.Buffer
+	var errBuf1 bytes.Buffer
 	cmd1.Stdout = &buf1
-	if out, err := cmd1.CombinedOutput(); err != nil {
-		// stderr on error
-		return nil, nil, fmt.Errorf("split first part: %s", string(out))
+	cmd1.Stderr = &errBuf1
+	if err := cmd1.Run(); err != nil {
+		return nil, nil, fmt.Errorf("split first part: %s (%v)", strings.TrimSpace(errBuf1.String()), err)
 	}
 	first, err = io.ReadAll(&buf1)
 	if err != nil {
@@ -279,9 +280,11 @@ func splitBytes(ctx context.Context, data []byte, splitTime float64) (first []by
 	cmd2 := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", "pipe:0", "-ss", fmt.Sprintf("%f", splitTime), "-f", "wav", "pipe:1")
 	cmd2.Stdin = bytes.NewReader(data)
 	var buf2 bytes.Buffer
+	var errBuf2 bytes.Buffer
 	cmd2.Stdout = &buf2
-	if out, err := cmd2.CombinedOutput(); err != nil {
-		return nil, nil, fmt.Errorf("split second part: %s", string(out))
+	cmd2.Stderr = &errBuf2
+	if err := cmd2.Run(); err != nil {
+		return nil, nil, fmt.Errorf("split second part: %s (%v)", strings.TrimSpace(errBuf2.String()), err)
 	}
 	second, err = io.ReadAll(&buf2)
 	if err != nil {

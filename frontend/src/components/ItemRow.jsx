@@ -3,8 +3,6 @@ import { getAudioUrl } from '../utils/api';
 import { parseFilename, formatTime, samplesToTime, getAbsoluteTime, getBilibiliLink } from '../utils/fileNaming';
 import WavePlayer from './WavePlayer';
 
-const BTN_SM = 'inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-[13px] rounded-lg font-medium cursor-pointer relative overflow-hidden transition-all duration-200 text-[color:var(--text-primary)] bg-[color:var(--card-bg)] border border-[color:var(--card-border)] hover:bg-[color:var(--card-hover)] hover:border-[rgba(15,23,42,0.22)] hover:-translate-y-px active:translate-y-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none';
-
 const BTN_SM_ACCENT = 'inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-[13px] rounded-lg font-medium cursor-pointer relative overflow-hidden transition-all duration-200 text-white bg-[color:var(--accent)] border border-[color:var(--accent)] shadow-[0_4px_14px_var(--accent-glow)] hover:bg-[color:var(--accent-hover)] hover:shadow-[0_6px_20px_var(--accent-glow)] hover:-translate-y-px active:translate-y-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none';
 
 const BTN_SM_AUTO = 'inline-flex items-center justify-center gap-1.5 min-w-[64px] px-2.5 py-1.5 text-[13px] rounded-lg font-medium cursor-pointer relative overflow-hidden transition-all duration-200 text-[color:var(--accent)] bg-[rgba(20,184,166,0.08)] border border-[rgba(15,118,110,0.34)] hover:bg-[rgba(20,184,166,0.14)] hover:border-[color:var(--accent)] hover:-translate-y-px active:translate-y-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none';

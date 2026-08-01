@@ -73,19 +73,28 @@ func (h *QualityHandler) Cache(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid datasetId"})
 	}
 
-	results, err := h.qualityStore.ListByDataset(c.Request().Context(), datasetID)
+	page, _ := strconv.Atoi(c.QueryParam("page"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(c.QueryParam("page_size"))
+	if pageSize < 1 || pageSize > 500 {
+		pageSize = 10
+	}
+
+	results, total, err := h.qualityStore.ListByDataset(c.Request().Context(), datasetID, page, pageSize)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
-	valid := make([]db.QualityResult, 0)
+	valid := make([]db.QualityResult, 0, len(results))
 	for _, r := range results {
 		if r.Status == "ok" {
 			valid = append(valid, r)
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]interface{}{"results": valid})
+	return c.JSON(http.StatusOK, model.PaginatedResponse{Data: valid, Total: total, Page: page, PageSize: pageSize})
 }
 
 func (h *QualityHandler) BatchCheck(c echo.Context) error {

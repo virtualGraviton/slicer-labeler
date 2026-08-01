@@ -89,27 +89,35 @@ func (s *QualityStore) Upsert(ctx context.Context, q *QualityResult) error {
 	return nil
 }
 
-func (s *QualityStore) ListByDataset(ctx context.Context, datasetID int64) ([]QualityResult, error) {
+func (s *QualityStore) ListByDataset(ctx context.Context, datasetID int64, page, pageSize int) ([]QualityResult, int64, error) {
+	var total int64
+	if err := s.db.WithContext(ctx).
+		Table("quality_results").
+		Joins("JOIN entries ON entries.id = quality_results.entry_id").
+		Where("entries.dataset_id = ?", datasetID).
+		Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("count quality results: %w", err)
+	}
+
 	var results []QualityResult
 	err := s.db.WithContext(ctx).
 		Table("quality_results").
 		Select("quality_results.*, entries.wav_path").
 		Joins("JOIN entries ON entries.id = quality_results.entry_id").
 		Where("entries.dataset_id = ?", datasetID).
-		Order("quality_results.id ASC").
+		Order("entries.id ASC").
+		Limit(pageSize).
+		Offset((page - 1) * pageSize).
 		Find(&results).Error
 	if err != nil {
-		return nil, fmt.Errorf("list quality results for dataset %d: %w", datasetID, err)
+		return nil, 0, fmt.Errorf("list quality results: %w", err)
 	}
 	for i := range results {
 		if results[i].Reasons == nil {
 			results[i].Reasons = []string{}
 		}
 	}
-	if results == nil {
-		results = []QualityResult{}
-	}
-	return results, nil
+	return results, total, nil
 }
 
 func (s *QualityStore) DeleteByEntryID(ctx context.Context, entryID int64) error {
