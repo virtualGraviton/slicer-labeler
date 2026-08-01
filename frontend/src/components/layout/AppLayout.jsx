@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 export default function AppLayout() {
   const location = useLocation();
+  const isLabelPage = location.pathname.includes('/entries');
   const [dark, setDark] = useState(() => {
     const stored = typeof window !== 'undefined' && localStorage.getItem('slicer-labeler.theme');
     return stored === 'dark';
@@ -75,7 +76,7 @@ export default function AppLayout() {
       </header>
 
       {/* popLayout: 旧页面立即脱流，新页面在顶部正常渲染，避免挤压 */}
-      <main className="relative max-w-7xl mx-auto px-6 py-6">
+      <main className={`relative mx-auto px-6 py-6 ${isLabelPage ? 'max-w-screen-2xl' : 'max-w-7xl'}`}>
         <AnimatePresence mode="popLayout">
           <motion.div
             key={location.pathname}

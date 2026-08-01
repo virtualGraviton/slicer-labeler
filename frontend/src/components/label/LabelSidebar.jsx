@@ -12,10 +12,6 @@ export default function LabelSidebar({
   onMergeClick,
   volume,
   onVolumeChange,
-  totalCount,
-  currentPage,
-  totalPages,
-  onPageChange,
 }) {
   const trackRef = useRef(null);
   const pct = Math.round(volume * 100);
@@ -25,8 +21,8 @@ export default function LabelSidebar({
       const track = trackRef.current;
       if (!track) return volume;
       const rect = track.getBoundingClientRect();
-      const y = Math.max(0, Math.min(rect.height, rect.bottom - e.clientY));
-      return Math.round((y / rect.height) * 100) / 100;
+      const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+      return Math.round((x / rect.width) * 100) / 100;
     },
     [volume],
   );
@@ -54,11 +50,6 @@ export default function LabelSidebar({
       className="w-48 shrink-0 flex flex-col gap-3 rounded-2xl border border-gray-200 dark:border-gray-700
         bg-white/60 dark:bg-gray-900/50 backdrop-blur-sm p-4 self-start sticky top-[72px]"
     >
-      {/* 状态 */}
-      <div className="text-xs text-gray-500 dark:text-gray-400 text-center pb-3 border-b border-gray-100 dark:border-gray-800">
-        {totalCount} 条目 · {currentPage + 1}/{totalPages} 页
-      </div>
-
       {/* 未保存 */}
       {hasUnsavedChanges && (
         <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-lg px-2 py-1.5">
@@ -124,11 +115,11 @@ export default function LabelSidebar({
         <div
           ref={trackRef}
           onMouseDown={handleVolumeMouseDown}
-          className="w-full h-24 bg-gray-100 dark:bg-gray-800 rounded-lg cursor-pointer relative overflow-hidden"
+          className="w-full h-4 bg-gray-100 dark:bg-gray-800 rounded-lg cursor-pointer relative overflow-hidden"
         >
           <div
-            className="absolute bottom-0 left-0 right-0 bg-teal-500 dark:bg-teal-600 rounded-b-lg transition-all duration-75"
-            style={{ height: `${pct}%` }}
+            className="absolute left-0 top-0 bottom-0 bg-teal-500 dark:bg-teal-600 rounded-l-lg transition-all duration-75"
+            style={{ width: `${pct}%` }}
           />
         </div>
       </div>
