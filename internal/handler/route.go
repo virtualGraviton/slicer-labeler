@@ -19,7 +19,7 @@ func RegisterRoutes(e *echo.Echo, gormDB *gorm.DB, cfg *config.Config) {
 	entryStore := db.NewEntryStore(gormDB)
 
 	// Services
-	storageSvc, err := service.NewStorageService(cfg.StorageEndpoint, cfg.StorageBucket, cfg.StorageAccessKey, cfg.StorageSecretKey, cfg.StoragePrefix)
+	storageSvc, err := service.NewStorageService(cfg.StorageEndpoint, cfg.StorageBucket, cfg.StorageAccessKey, cfg.StorageSecretKey, cfg.StoragePrefix, cfg.TmpDir)
 	if err != nil {
 		log.Fatalf("Failed to init storage: %v", err)
 	}
@@ -34,6 +34,8 @@ func RegisterRoutes(e *echo.Echo, gormDB *gorm.DB, cfg *config.Config) {
 	audioH := NewAudioHandler(entryStore, datasetStore, modelStore, storageSvc)
 	splitH := NewSplitHandler(entryStore, datasetStore, modelStore, audioSvc)
 	mergeH := NewMergeHandler(entryStore, datasetStore, modelStore, audioSvc, deepseekSvc)
+	importH := NewImportHandler(entryStore, datasetStore, modelStore, storageSvc)
+	archiveH := NewArchiveHandler(entryStore, datasetStore, modelStore, storageSvc)
 
 	api := e.Group("/api")
 
@@ -69,4 +71,11 @@ func RegisterRoutes(e *echo.Echo, gormDB *gorm.DB, cfg *config.Config) {
 	// Merge
 	api.POST("/entries/merge", mergeH.Merge)
 	api.POST("/entries/merge/polish", mergeH.Polish)
+
+	// Import (multipart upload + SSE progress stream)
+	api.POST("/datasets/:datasetId/import", importH.Import)
+	api.GET("/import-jobs/:jobId/stream", importH.Stream)
+
+	// Archive
+	api.POST("/datasets/:datasetId/archive", archiveH.Archive)
 }

@@ -14,6 +14,7 @@ type Config struct {
 	StorageAccessKey string
 	StorageSecretKey string
 	StoragePrefix    string
+	TmpDir           string
 }
 
 func Load() *Config {
@@ -28,7 +29,8 @@ func Load() *Config {
 		StorageBucket:    os.Getenv("STORAGE_BUCKET"),
 		StorageAccessKey: os.Getenv("STORAGE_ACCESS_KEY"),
 		StorageSecretKey: os.Getenv("STORAGE_SECRET_KEY"),
-		StoragePrefix:    envOrDefault("STORAGE_PREFIX", "processing"),
+		StoragePrefix:    envOrDefault("STORAGE_PREFIX", "dataset"),
+		TmpDir:           envOrDefault("TMP_DIR", "/data/tmp"),
 	}
 }
 

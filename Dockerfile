@@ -20,7 +20,6 @@ COPY --from=build /app/slicer-labeler .
 
 ENV HOST=0.0.0.0
 ENV PORT=8080
-ENV AUDIO_DATA_DIR=/data/audio
 
 EXPOSE 8080
 CMD ["./slicer-labeler"]

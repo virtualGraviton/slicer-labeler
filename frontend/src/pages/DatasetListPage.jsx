@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Plus, ArrowLeft, Loader2, ExternalLink, Pencil, Trash2, Clock } from 'lucide-react';
+import { Plus, ArrowLeft, Loader2, ExternalLink, Pencil, Trash2, Clock, Upload, Archive } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import DatasetFormModal from '../components/dataset/DatasetFormModal';
+import ImportModal from '../components/dataset/ImportModal';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
-import { getModel, fetchDatasets, createDataset, updateDataset, deleteDataset } from '../utils/api';
+import { getModel, fetchDatasets, createDataset, updateDataset, deleteDataset, archiveDataset } from '../utils/api';
 
 const fadeIn = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { duration: 0.15 } };
 const fadeUp = { initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0 }, transition: { duration: 0.2 } };
@@ -25,6 +26,9 @@ export default function DatasetListPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingDataset, setEditingDataset] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [importTarget, setImportTarget] = useState(null);
+  const [archiveTarget, setArchiveTarget] = useState(null);
+  const [archiving, setArchiving] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -56,6 +60,20 @@ export default function DatasetListPage() {
     if (!deleteTarget) return;
     try { await deleteDataset(deleteTarget.id); setDeleteTarget(null); await loadData(); }
     catch (err) { alert(err.message || '删除失败'); }
+  };
+
+  const handleArchive = async () => {
+    if (!archiveTarget || archiving) return;
+    setArchiving(true);
+    try {
+      const res = await archiveDataset(archiveTarget.id);
+      alert(`归档完成：${res.count} 条音频\n存储位置：${res.listPath}`);
+      setArchiveTarget(null);
+    } catch (err) {
+      alert(err.message || '归档失败');
+    } finally {
+      setArchiving(false);
+    }
   };
 
   return (
@@ -112,6 +130,18 @@ export default function DatasetListPage() {
                       bg-teal-50 hover:bg-teal-100 dark:text-teal-300 dark:bg-teal-900/30 dark:hover:bg-teal-900/50 transition-colors">
                     进入标注 <ExternalLink size={12} />
                   </button>
+                  <button onClick={() => setImportTarget(ds)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg text-gray-600
+                      bg-gray-50 hover:bg-teal-50 hover:text-teal-700 dark:text-gray-300 dark:bg-gray-800/60
+                      dark:hover:bg-teal-900/30 dark:hover:text-teal-300 transition-colors">
+                    <Upload size={12} />导入
+                  </button>
+                  <button onClick={() => setArchiveTarget(ds)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg text-gray-600
+                      bg-gray-50 hover:bg-teal-50 hover:text-teal-700 dark:text-gray-300 dark:bg-gray-800/60
+                      dark:hover:bg-teal-900/30 dark:hover:text-teal-300 transition-colors">
+                    <Archive size={12} />归档
+                  </button>
                   <button onClick={() => handleEdit(ds)}
                     className="p-1.5 rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/40 opacity-0 group-hover:opacity-100 transition-all"><Pencil size={14} /></button>
                   <button onClick={() => setDeleteTarget(ds)}
@@ -126,9 +156,17 @@ export default function DatasetListPage() {
       <DatasetFormModal open={formOpen} dataset={editingDataset} onSave={handleSave}
         onClose={() => { setFormOpen(false); setEditingDataset(null); }} />
 
+      <ImportModal open={!!importTarget} dataset={importTarget}
+        onClose={() => setImportTarget(null)} />
+
       <ConfirmDialog open={!!deleteTarget} title="删除数据集"
         message={`确定要删除数据集「${deleteTarget?.name}」吗？该数据集下的所有标注条目将被一并删除。`}
         confirmLabel="确认删除" danger onConfirm={handleDelete} onCancel={() => setDeleteTarget(null)} />
+
+      <ConfirmDialog open={!!archiveTarget} title="归档数据集"
+        message={`确定要归档数据集「${archiveTarget?.name}」吗？将把所有音频复制到 archived 目录并生成推理机格式的 .list 文件。`}
+        confirmLabel={archiving ? '归档中…' : '开始归档'} danger={false}
+        onConfirm={handleArchive} onCancel={() => setArchiveTarget(null)} />
     </div>
   );
 }

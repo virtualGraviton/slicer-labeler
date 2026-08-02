@@ -103,16 +103,21 @@ func (h *SplitHandler) Split(c echo.Context) error {
 	text2 := strings.TrimSpace(string(runes[splitIdx:]))
 
 	// Persist both halves and remove the original entry atomically.
+	// Entries store the bare filename; the object path is derived from it.
+	firstBase := filepath.Base(firstKey)
+	secondBase := filepath.Base(secondKey)
 	entries, err := h.entryStore.SplitReplace(ctx, entry.DatasetID, entry.ID, model.EntryInput{
-		WavPath:  firstKey,
+		WavPath:  firstBase,
 		Speaker:  req.Speaker,
 		Language: req.Language,
 		Text:     text1,
+		MetaData: service.ParseEntryMetaData(firstBase),
 	}, model.EntryInput{
-		WavPath:  secondKey,
+		WavPath:  secondBase,
 		Speaker:  req.Speaker,
 		Language: req.Language,
 		Text:     text2,
+		MetaData: service.ParseEntryMetaData(secondBase),
 	})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})

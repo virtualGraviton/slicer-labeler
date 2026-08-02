@@ -109,3 +109,55 @@ export async function polishMergeText({ entries, hardMergedText, speaker, langua
     body: JSON.stringify({ entries, hardMergedText, speaker, language }),
   });
 }
+
+// ─── Import / Archive ───
+
+// importDataset uploads a zip/tar.gz bundle via XHR so the browser reports
+// upload progress (0-100). Resolves to { jobId } once the server received it.
+export function importDataset(datasetId, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${BASE}/api/datasets/${datasetId}/import`);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch { /* keep {} */ }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(new Error(data.error || '上传失败'));
+    };
+    xhr.onerror = () => reject(new Error('网络错误，上传失败'));
+    const form = new FormData();
+    form.append('file', file);
+    xhr.send(form);
+  });
+}
+
+// subscribeImportJob consumes the SSE progress stream of an import job.
+// onEvent fires on each push ({status, stage, progress, imported, missing, orphans, error});
+// the stream is closed automatically on terminal (done/error) events.
+export function subscribeImportJob(jobId, { onEvent, onDone, onError }) {
+  const es = new EventSource(`${BASE}/api/import-jobs/${jobId}/stream`);
+  es.onmessage = (e) => {
+    let ev;
+    try { ev = JSON.parse(e.data); } catch { return; }
+    if (onEvent) onEvent(ev);
+    if (ev.status === 'done') {
+      es.close();
+      if (onDone) onDone(ev);
+    } else if (ev.status === 'error') {
+      es.close();
+      if (onError) onError(ev.error || '处理失败');
+    }
+  };
+  es.onerror = () => {
+    es.close();
+    if (onError) onError('进度连接中断');
+  };
+  return es;
+}
+
+export async function archiveDataset(datasetId) {
+  return request(`/api/datasets/${datasetId}/archive`, { method: 'POST' });
+}

@@ -32,10 +32,11 @@ type UpdateDatasetRequest struct {
 
 // EntryInput represents a single entry to upsert.
 type EntryInput struct {
-	WavPath  string `json:"wavPath"`
-	Speaker  string `json:"speaker"`
-	Language string `json:"language"`
-	Text     string `json:"text"`
+	WavPath  string                 `json:"wavPath"`
+	Speaker  string                 `json:"speaker"`
+	Language string                 `json:"language"`
+	Text     string                 `json:"text"`
+	MetaData map[string]interface{} `json:"metaData,omitempty"`
 }
 
 // BatchUpsertEntriesRequest is the body for POST /api/datasets/:datasetId/entries.
@@ -85,6 +86,35 @@ type PolishMergeResponse struct {
 	PolishedText  string `json:"polishedText"`
 	ExplanationZh string `json:"explanationZh"`
 	Model         string `json:"model"`
+}
+
+// --- Dataset initialization (import) ---
+
+// ImportResponse is returned right after the uploaded bundle lands on disk.
+// Processing progress is streamed via GET /api/import-jobs/:jobId/stream (SSE).
+type ImportResponse struct {
+	JobID string `json:"jobId"`
+}
+
+// ImportJobEvent is the SSE payload pushed during import processing.
+type ImportJobEvent struct {
+	Status   string   `json:"status"`   // processing | done | error
+	Stage    string   `json:"stage"`    // extract | upload | upsert
+	Progress int      `json:"progress"` // 0-100
+	Imported int      `json:"imported"`
+	Missing  []string `json:"missing"`
+	Orphans  []string `json:"orphans"`
+	Error    string   `json:"error"`
+}
+
+// --- Dataset archive ---
+
+// ArchiveResponse describes the archived copy written back to the inference-machine layout.
+type ArchiveResponse struct {
+	Success  bool   `json:"success"`
+	Count    int    `json:"count"`
+	Prefix   string `json:"prefix"`
+	ListPath string `json:"listPath"`
 }
 
 // --- Common ---

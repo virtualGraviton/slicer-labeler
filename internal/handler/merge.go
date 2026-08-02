@@ -86,11 +86,13 @@ func (h *MergeHandler) Merge(c echo.Context) error {
 			sourceIDs = append(sourceIDs, src.ID)
 		}
 	}
+	mergedBase := filepath.Base(mergedKey)
 	mergedEntry, err := h.entryStore.MergeReplace(ctx, datasetID, sourceIDs, model.EntryInput{
-		WavPath:  mergedKey,
+		WavPath:  mergedBase,
 		Speaker:  req.Speaker,
 		Language: req.Language,
 		Text:     req.MergedText,
+		MetaData: service.ParseEntryMetaData(mergedBase),
 	})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
