@@ -21,6 +21,7 @@ type MergeHandler struct {
 	modelStore   *db.ModelStore
 	audio        *service.AudioService
 	deepseek     *service.DeepSeekService
+	tm           *TaskManager
 }
 
 // MergeResponse returns the merged entry.
@@ -30,8 +31,8 @@ type MergeResponse struct {
 	Total   int64     `json:"total"`
 }
 
-func NewMergeHandler(entryStore *db.EntryStore, datasetStore *db.DatasetStore, modelStore *db.ModelStore, audio *service.AudioService, deepseek *service.DeepSeekService) *MergeHandler {
-	return &MergeHandler{entryStore: entryStore, datasetStore: datasetStore, modelStore: modelStore, audio: audio, deepseek: deepseek}
+func NewMergeHandler(entryStore *db.EntryStore, datasetStore *db.DatasetStore, modelStore *db.ModelStore, audio *service.AudioService, deepseek *service.DeepSeekService, tm *TaskManager) *MergeHandler {
+	return &MergeHandler{entryStore: entryStore, datasetStore: datasetStore, modelStore: modelStore, audio: audio, deepseek: deepseek, tm: tm}
 }
 
 func (h *MergeHandler) Merge(c echo.Context) error {
@@ -50,6 +51,9 @@ func (h *MergeHandler) Merge(c echo.Context) error {
 	datasetID, modelName, datasetName, err := h.resolveFromFirstEntry(ctx, req.Entries)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	if err := datasetBusy(h.tm, datasetID); err != nil {
+		return err
 	}
 
 	firstBasename := filepath.Base(req.Entries[0].WavPath)

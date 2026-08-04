@@ -8,7 +8,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -17,7 +16,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -32,118 +30,46 @@ const (
 	importStageUpload  = "upload"
 	importStageUpsert  = "upsert"
 
-	importStatusProcessing = "processing"
-	importStatusDone       = "done"
-	importStatusError      = "error"
-
 	importTimeout = 30 * time.Minute
 )
 
-// importJob tracks the async processing of one import bundle.
-type importJob struct {
-	id       string
-	status   string
-	stage    string
-	progress int
-	imported int
-	missing  []string
-	orphans  []string
-	errMsg   string
-	version  int
-	done     chan struct{}
-	mu       sync.Mutex
-}
-
-// snapshot returns the current job state (for SSE push) and its version.
-func (j *importJob) snapshot() (model.ImportJobEvent, int) {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	return model.ImportJobEvent{
-		Status:   j.status,
-		Stage:    j.stage,
-		Progress: j.progress,
-		Imported: j.imported,
-		Missing:  j.missing,
-		Orphans:  j.orphans,
-		Error:    j.errMsg,
-	}, j.version
-}
-
-func (j *importJob) update(status, stage string, progress, imported int, missing, orphans []string, errMsg string) {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	if status != "" {
-		j.status = status
-	}
-	if stage != "" {
-		j.stage = stage
-	}
-	if progress >= 0 {
-		j.progress = progress
-	}
-	if imported >= 0 {
-		j.imported = imported
-	}
-	if missing != nil {
-		j.missing = missing
-	}
-	if orphans != nil {
-		j.orphans = orphans
-	}
-	if errMsg != "" {
-		j.errMsg = errMsg
-	}
-	j.version++
-}
-
-type importJobManager struct {
-	mu   sync.Mutex
-	jobs map[string]*importJob
-}
-
-func newImportJobManager() *importJobManager {
-	return &importJobManager{jobs: map[string]*importJob{}}
-}
-
-func (m *importJobManager) get(id string) *importJob {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.jobs[id]
-}
-
-func (m *importJobManager) set(j *importJob) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.jobs[j.id] = j
-}
-
-// ImportHandler accepts inference-machine bundles and streams processing progress.
+// ImportHandler accepts inference-machine bundles and processes them as a task
+// (extract -> upload -> upsert), streaming progress over SSE.
 type ImportHandler struct {
 	entryStore   *db.EntryStore
 	datasetStore *db.DatasetStore
 	modelStore   *db.ModelStore
 	storage      *service.StorageService
 	tmpDir       string
-	jobs         *importJobManager
+	tm           *TaskManager
 }
 
-func NewImportHandler(entryStore *db.EntryStore, datasetStore *db.DatasetStore, modelStore *db.ModelStore, storage *service.StorageService) *ImportHandler {
+func NewImportHandler(entryStore *db.EntryStore, datasetStore *db.DatasetStore, modelStore *db.ModelStore, storage *service.StorageService, tm *TaskManager) *ImportHandler {
 	return &ImportHandler{
 		entryStore:   entryStore,
 		datasetStore: datasetStore,
 		modelStore:   modelStore,
 		storage:      storage,
 		tmpDir:       storage.TmpDir(),
-		jobs:         newImportJobManager(),
+		tm:           tm,
 	}
 }
 
 // Import receives the bundle (zip/tar.gz), saves it to a temp file, then starts
-// an async job that extracts, uploads to OSS and persists entries.
+// an async task that extracts, uploads to OSS and persists entries.
 func (h *ImportHandler) Import(c echo.Context) error {
 	datasetID, err := strconv.ParseInt(c.Param("datasetId"), 10, 64)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid datasetId"})
+	}
+
+	ctx := c.Request().Context()
+	d, err := h.datasetStore.Get(ctx, datasetID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	if d == nil {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "dataset not found"})
 	}
 
 	file, err := c.FormFile("file")
@@ -161,24 +87,36 @@ func (h *ImportHandler) Import(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "only .zip / .tar.gz bundles are supported"})
 	}
 
-	if err := os.MkdirAll(h.tmpDir, 0o755); err != nil {
+	modelName, datasetName, err := resolveNames(ctx, h.datasetStore, h.modelStore, datasetID)
+	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
-	jobID := fmt.Sprintf("%d-%s", time.Now().UnixNano(), randHex(4))
-	tmp := filepath.Join(h.tmpDir, "import-"+jobID)
+	task, err := h.tm.TryLock(datasetID, d.ModelID, modelName, datasetName, model.TaskTypeImport)
+	if err != nil {
+		return c.JSON(http.StatusConflict, map[string]string{"error": fmt.Sprintf("数据集「%s」正在执行任务，请稍后再试", datasetName)})
+	}
+
+	if err := os.MkdirAll(h.tmpDir, 0o755); err != nil {
+		h.tm.Unlock(datasetID, task.ID)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	tmp := filepath.Join(h.tmpDir, "import-"+task.ID)
 	if err := os.MkdirAll(tmp, 0o755); err != nil {
+		h.tm.Unlock(datasetID, task.ID)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
 	src, err := file.Open()
 	if err != nil {
+		h.tm.Unlock(datasetID, task.ID)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 	bundlePath := filepath.Join(tmp, "bundle"+ext)
 	dst, err := os.Create(bundlePath)
 	if err != nil {
 		src.Close()
+		h.tm.Unlock(datasetID, task.ID)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 	written, err := io.Copy(dst, src)
@@ -186,91 +124,26 @@ func (h *ImportHandler) Import(c echo.Context) error {
 	dst.Close()
 	if err != nil {
 		os.RemoveAll(tmp)
+		h.tm.Unlock(datasetID, task.ID)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to store upload: " + err.Error()})
 	}
 
-	ctx := c.Request().Context()
-	modelName, datasetName, err := resolveNames(ctx, h.datasetStore, h.modelStore, datasetID)
-	if err != nil {
-		os.RemoveAll(tmp)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-	}
+	log.Printf("[import] task=%s dataset=%d bundle=%s size=%d -> %s/%s", task.ID, datasetID, file.Filename, written, modelName, datasetName)
+	go h.runTask(task, datasetID, modelName, datasetName, tmp, ext)
 
-	job := &importJob{
-		id:     jobID,
-		status: importStatusProcessing,
-		stage:  importStageExtract,
-		done:   make(chan struct{}),
-	}
-	h.jobs.set(job)
-
-	log.Printf("[import] job=%s dataset=%d bundle=%s size=%d -> %s/%s", jobID, datasetID, file.Filename, written, modelName, datasetName)
-	go h.runJob(job, datasetID, modelName, datasetName, tmp, ext)
-
-	return c.JSON(http.StatusOK, model.ImportResponse{JobID: jobID})
+	return c.JSON(http.StatusOK, model.ImportResponse{JobID: task.ID})
 }
 
-// Stream pushes import progress over SSE until the job reaches a terminal state.
-func (h *ImportHandler) Stream(c echo.Context) error {
-	job := h.jobs.get(c.Param("jobId"))
-	if job == nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "job not found"})
-	}
-
-	w := c.Response()
-	w.Header().Set(echo.HeaderContentType, "text/event-stream")
-	w.Header().Set(echo.HeaderCacheControl, "no-cache")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
-
-	flush := func() {
-		w.Flush()
-	}
-	push := func(ev model.ImportJobEvent) error {
-		data, err := json.Marshal(ev)
-		if err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
-			return err
-		}
-		flush()
-		return nil
-	}
-
-	lastVersion := -1
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-c.Request().Context().Done():
-			return nil
-		case <-job.done:
-			ev, _ := job.snapshot()
-			return push(ev)
-		case <-ticker.C:
-			ev, v := job.snapshot()
-			if v == lastVersion {
-				continue
-			}
-			lastVersion = v
-			if err := push(ev); err != nil {
-				return err
-			}
-		}
-	}
-}
-
-func (h *ImportHandler) runJob(job *importJob, datasetID int64, modelName, datasetName, tmp, ext string) {
+func (h *ImportHandler) runTask(task *Task, datasetID int64, modelName, datasetName, tmp, ext string) {
 	ctx, cancel := context.WithTimeout(context.Background(), importTimeout)
 	defer cancel()
-	defer close(job.done)
+	defer close(task.Done)
+	defer h.tm.Unlock(datasetID, task.ID)
 
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[import] job=%s panic: %v", job.id, r)
-			job.update(importStatusError, "", -1, -1, nil, nil, "internal error: "+fmt.Sprint(r))
+			log.Printf("[import] task=%s panic: %v", task.ID, r)
+			task.update(model.TaskStatusError, "", -1, -1, -1, nil, nil, "", "internal error: "+fmt.Sprint(r))
 		}
 		os.RemoveAll(tmp)
 	}()
@@ -280,22 +153,22 @@ func (h *ImportHandler) runJob(job *importJob, datasetID int64, modelName, datas
 
 	// Stage 1: extract
 	if err := extractBundle(bundlePath, ext, tmp); err != nil {
-		log.Printf("[import] job=%s extract failed: %v", job.id, err)
-		job.update(importStatusError, importStageExtract, -1, -1, nil, nil, "解压失败: "+err.Error())
+		log.Printf("[import] task=%s extract failed: %v", task.ID, err)
+		task.update(model.TaskStatusError, importStageExtract, -1, -1, -1, nil, nil, "", "解压失败: "+err.Error())
 		return
 	}
-	log.Printf("[import] job=%s extract done", job.id)
+	log.Printf("[import] task=%s extract done", task.ID)
 
 	listPaths, wavPaths := scanBundle(tmp)
-	log.Printf("[import] job=%s scan: lists=%d wavs=%d", job.id, len(listPaths), len(wavPaths))
+	log.Printf("[import] task=%s scan: lists=%d wavs=%d", task.ID, len(listPaths), len(wavPaths))
 
 	parsed, err := parseListFiles(listPaths)
 	if err != nil {
-		log.Printf("[import] job=%s parse list failed: %v", job.id, err)
-		job.update(importStatusError, importStageExtract, -1, -1, nil, nil, "解析 list 失败: "+err.Error())
+		log.Printf("[import] task=%s parse list failed: %v", task.ID, err)
+		task.update(model.TaskStatusError, importStageExtract, -1, -1, -1, nil, nil, "", "解析 list 失败: "+err.Error())
 		return
 	}
-	log.Printf("[import] job=%s list parsed: %d rows", job.id, len(parsed))
+	log.Printf("[import] task=%s list parsed: %d rows", task.ID, len(parsed))
 
 	wavByBase := map[string]string{}
 	for _, p := range wavPaths {
@@ -324,17 +197,17 @@ func (h *ImportHandler) runJob(job *importJob, datasetID int64, modelName, datas
 			orphans = append(orphans, b)
 		}
 	}
-	log.Printf("[import] job=%s match: valid=%d missing=%d orphans=%d", job.id, len(valid), len(missing), len(orphans))
+	log.Printf("[import] task=%s match: valid=%d missing=%d orphans=%d", task.ID, len(valid), len(missing), len(orphans))
 
 	// Stage 2: upload wavs to OSS
-	job.update("", importStageUpload, 20, -1, missing, orphans, "")
+	task.update("", importStageUpload, 20, -1, -1, missing, orphans, "", "")
 	total := len(valid)
 	inputs := make([]model.EntryInput, 0, total)
 	for i, e := range valid {
 		local := wavByBase[e.wav]
 		if _, err := h.storage.UploadFile(ctx, modelName, datasetName, e.wav, local); err != nil {
-			log.Printf("[import] job=%s upload %s failed: %v", job.id, e.wav, err)
-			job.update(importStatusError, importStageUpload, -1, -1, nil, nil, "上传失败 "+e.wav+": "+err.Error())
+			log.Printf("[import] task=%s upload %s failed: %v", task.ID, e.wav, err)
+			task.update(model.TaskStatusError, importStageUpload, -1, -1, -1, nil, nil, "", "上传失败 "+e.wav+": "+err.Error())
 			return
 		}
 		inputs = append(inputs, model.EntryInput{
@@ -349,23 +222,23 @@ func (h *ImportHandler) runJob(job *importJob, datasetID int64, modelName, datas
 			p = 20 + int(float64(i+1)/float64(total)*60)
 		}
 		if i%20 == 0 || i == total-1 {
-			job.update("", importStageUpload, p, -1, nil, nil, "")
-			log.Printf("[import] job=%s upload %d/%d", job.id, i+1, total)
+			task.update("", importStageUpload, p, i+1, -1, nil, nil, "", "")
+			log.Printf("[import] task=%s upload %d/%d", task.ID, i+1, total)
 		}
 	}
-	log.Printf("[import] job=%s upload done (%d files)", job.id, total)
+	log.Printf("[import] task=%s upload done (%d files)", task.ID, total)
 
 	// Stage 3: persist
-	job.update("", importStageUpsert, 80, -1, nil, nil, "")
+	task.update("", importStageUpsert, 80, -1, -1, nil, nil, "", "")
 	if _, err := h.entryStore.BatchUpsert(ctx, datasetID, inputs); err != nil {
-		log.Printf("[import] job=%s upsert failed: %v", job.id, err)
-		job.update(importStatusError, importStageUpsert, -1, -1, nil, nil, "落库失败: "+err.Error())
+		log.Printf("[import] task=%s upsert failed: %v", task.ID, err)
+		task.update(model.TaskStatusError, importStageUpsert, -1, -1, -1, nil, nil, "", "落库失败: "+err.Error())
 		return
 	}
-	log.Printf("[import] job=%s upsert done: %d entries in %s", job.id, len(inputs), time.Since(start).Round(time.Millisecond))
+	log.Printf("[import] task=%s upsert done: %d entries in %s", task.ID, len(inputs), time.Since(start).Round(time.Millisecond))
 
-	job.update(importStatusDone, importStageUpsert, 100, len(inputs), missing, orphans, "")
-	log.Printf("[import] job=%s finished: imported=%d missing=%d orphans=%d elapsed=%s", job.id, len(inputs), len(missing), len(orphans), time.Since(start).Round(time.Millisecond))
+	task.update(model.TaskStatusDone, importStageUpsert, 100, len(inputs), -1, missing, orphans, "", "")
+	log.Printf("[import] task=%s finished: imported=%d missing=%d orphans=%d elapsed=%s", task.ID, len(inputs), len(missing), len(orphans), time.Since(start).Round(time.Millisecond))
 }
 
 // --- Bundle extraction (zip-slip safe) ---

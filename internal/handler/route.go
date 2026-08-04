@@ -26,16 +26,20 @@ func RegisterRoutes(e *echo.Echo, gormDB *gorm.DB, cfg *config.Config) {
 	audioSvc := service.NewAudioService(storageSvc)
 	deepseekSvc := service.NewDeepSeekService(cfg.DeepSeekAPIKey, cfg.DeepSeekAPIURL, cfg.DeepSeekModel)
 
+	// TaskManager guards concurrent writes while a dataset runs a task.
+	tm := NewTaskManager()
+
 	// Handlers
 	healthH := NewHealthHandler(gormDB)
-	modelH := NewModelHandler(modelStore)
-	datasetH := NewDatasetHandler(datasetStore)
-	entryH := NewEntryHandler(entryStore)
+	modelH := NewModelHandler(modelStore, datasetStore, tm)
+	datasetH := NewDatasetHandler(datasetStore, tm)
+	entryH := NewEntryHandler(entryStore, tm)
 	audioH := NewAudioHandler(entryStore, datasetStore, modelStore, storageSvc)
-	splitH := NewSplitHandler(entryStore, datasetStore, modelStore, audioSvc)
-	mergeH := NewMergeHandler(entryStore, datasetStore, modelStore, audioSvc, deepseekSvc)
-	importH := NewImportHandler(entryStore, datasetStore, modelStore, storageSvc)
-	archiveH := NewArchiveHandler(entryStore, datasetStore, modelStore, storageSvc)
+	splitH := NewSplitHandler(entryStore, datasetStore, modelStore, audioSvc, tm)
+	mergeH := NewMergeHandler(entryStore, datasetStore, modelStore, audioSvc, deepseekSvc, tm)
+	importH := NewImportHandler(entryStore, datasetStore, modelStore, storageSvc, tm)
+	archiveH := NewArchiveHandler(entryStore, datasetStore, modelStore, storageSvc, tm)
+	taskH := NewTaskHandler(tm)
 
 	api := e.Group("/api")
 
@@ -72,10 +76,12 @@ func RegisterRoutes(e *echo.Echo, gormDB *gorm.DB, cfg *config.Config) {
 	api.POST("/entries/merge", mergeH.Merge)
 	api.POST("/entries/merge/polish", mergeH.Polish)
 
-	// Import (multipart upload + SSE progress stream)
+	// Import / Archive (async tasks)
 	api.POST("/datasets/:datasetId/import", importH.Import)
-	api.GET("/import-jobs/:jobId/stream", importH.Stream)
-
-	// Archive
 	api.POST("/datasets/:datasetId/archive", archiveH.Archive)
+
+	// Tasks
+	api.GET("/tasks", taskH.List)
+	api.GET("/tasks/events", taskH.Events)
+	api.GET("/tasks/:taskId/stream", taskH.Stream)
 }

@@ -30,6 +30,7 @@ export default function ItemRow({
   countdownTotalSeconds,
   showCountdown,
   volume,
+  busy = false,
 }) {
   const [audioBuffer, setAudioBuffer] = useState(null);
   const [audioUrl, setAudioUrl] = useState('');
@@ -89,6 +90,8 @@ export default function ItemRow({
           onChange={(e) => onTextChange(index, e.target.value)}
           placeholder="Enter text..."
           rows={3}
+          disabled={busy}
+          title={busy ? '数据集正在执行任务，文本编辑已锁定' : undefined}
         />
         <div className="text-[11px] text-[color:var(--text-secondary)] flex gap-3 flex-wrap">
           {info && (
@@ -133,14 +136,16 @@ export default function ItemRow({
           <button
             className={BTN_SM_ACCENT}
             onClick={() => onSplitClick(index)}
-            title="Split Audio"
+            disabled={busy}
+            title={busy ? '任务进行中，暂不可切分' : 'Split Audio'}
           >
             切分
           </button>
           <button
             className={BTN_SM_DELETE}
             onClick={() => onDeleteClick?.(index)}
-            title="删除该条目的音频文件和 ASR 文本记录"
+            disabled={busy}
+            title={busy ? '任务进行中，暂不可删除' : '删除该条目的音频文件和 ASR 文本记录'}
           >
             删除
           </button>

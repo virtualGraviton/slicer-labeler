@@ -12,10 +12,11 @@ import (
 
 type EntryHandler struct {
 	store *db.EntryStore
+	tm    *TaskManager
 }
 
-func NewEntryHandler(store *db.EntryStore) *EntryHandler {
-	return &EntryHandler{store: store}
+func NewEntryHandler(store *db.EntryStore, tm *TaskManager) *EntryHandler {
+	return &EntryHandler{store: store, tm: tm}
 }
 
 func (h *EntryHandler) List(c echo.Context) error {
@@ -51,6 +52,9 @@ func (h *EntryHandler) BatchUpsert(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid datasetId"})
 	}
+	if err := datasetBusy(h.tm, datasetID); err != nil {
+		return err
+	}
 
 	var req model.BatchUpsertEntriesRequest
 	if err := c.Bind(&req); err != nil {
@@ -79,21 +83,40 @@ func (h *EntryHandler) Update(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
-	entry, err := h.store.UpdateText(c.Request().Context(), id, req.Text)
+	entry, err := h.store.GetByID(c.Request().Context(), id)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 	if entry == nil {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "entry not found"})
 	}
+	if err := datasetBusy(h.tm, entry.DatasetID); err != nil {
+		return err
+	}
 
-	return c.JSON(http.StatusOK, entry)
+	updated, err := h.store.UpdateText(c.Request().Context(), id, req.Text)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, updated)
 }
 
 func (h *EntryHandler) Delete(c echo.Context) error {
 	id, err := strconv.ParseInt(c.Param("entryId"), 10, 64)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid entryId"})
+	}
+
+	entry, err := h.store.GetByID(c.Request().Context(), id)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	if entry == nil {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "entry not found"})
+	}
+	if err := datasetBusy(h.tm, entry.DatasetID); err != nil {
+		return err
 	}
 
 	deleted, err := h.store.Delete(c.Request().Context(), id)

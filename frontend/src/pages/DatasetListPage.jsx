@@ -6,6 +6,7 @@ import DatasetFormModal from '../components/dataset/DatasetFormModal';
 import ImportModal from '../components/dataset/ImportModal';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import { getModel, fetchDatasets, createDataset, updateDataset, deleteDataset, archiveDataset } from '../utils/api';
+import { useTasks } from '../context/TaskContext';
 
 const fadeIn = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { duration: 0.15 } };
 const fadeUp = { initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0 }, transition: { duration: 0.2 } };
@@ -29,6 +30,7 @@ export default function DatasetListPage() {
   const [importTarget, setImportTarget] = useState(null);
   const [archiveTarget, setArchiveTarget] = useState(null);
   const [archiving, setArchiving] = useState(false);
+  const { isDatasetBusy } = useTasks();
 
   const loadData = useCallback(async () => {
     try {
@@ -66,8 +68,8 @@ export default function DatasetListPage() {
     if (!archiveTarget || archiving) return;
     setArchiving(true);
     try {
-      const res = await archiveDataset(archiveTarget.id);
-      alert(`归档完成：${res.count} 条音频\n存储位置：${res.listPath}`);
+      await archiveDataset(archiveTarget.id);
+      alert('归档任务已创建，可在右上角任务列表查看进度');
       setArchiveTarget(null);
     } catch (err) {
       alert(err.message || '归档失败');
@@ -120,7 +122,14 @@ export default function DatasetListPage() {
                   <span className="text-teal-600 dark:text-teal-400 font-semibold text-xs">{ds.name?.charAt(0)?.toUpperCase()}</span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{ds.name}</h3>
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                    {ds.name}
+                    {isDatasetBusy(ds.id) && (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/50 text-teal-700 dark:text-teal-300 text-[10px] font-medium">
+                        <Loader2 size={9} className="animate-spin" />任务处理中
+                      </span>
+                    )}
+                  </h3>
                   {ds.description && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">{ds.description}</p>}
                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 flex items-center gap-1"><Clock size={11} />{new Date(ds.created_at).toLocaleDateString('zh-CN')}</p>
                 </div>
@@ -130,22 +139,28 @@ export default function DatasetListPage() {
                       bg-teal-50 hover:bg-teal-100 dark:text-teal-300 dark:bg-teal-900/30 dark:hover:bg-teal-900/50 transition-colors">
                     进入标注 <ExternalLink size={12} />
                   </button>
-                  <button onClick={() => setImportTarget(ds)}
+                  <button onClick={() => setImportTarget(ds)} disabled={isDatasetBusy(ds.id)}
+                    title={isDatasetBusy(ds.id) ? '任务进行中，暂不可导入' : undefined}
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg text-gray-600
                       bg-gray-50 hover:bg-teal-50 hover:text-teal-700 dark:text-gray-300 dark:bg-gray-800/60
-                      dark:hover:bg-teal-900/30 dark:hover:text-teal-300 transition-colors">
+                      dark:hover:bg-teal-900/30 dark:hover:text-teal-300 transition-colors
+                      disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-gray-50 disabled:hover:text-gray-600 dark:disabled:hover:bg-gray-800/60 dark:disabled:hover:text-gray-300">
                     <Upload size={12} />导入
                   </button>
-                  <button onClick={() => setArchiveTarget(ds)}
+                  <button onClick={() => setArchiveTarget(ds)} disabled={isDatasetBusy(ds.id)}
+                    title={isDatasetBusy(ds.id) ? '任务进行中，暂不可归档' : undefined}
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg text-gray-600
                       bg-gray-50 hover:bg-teal-50 hover:text-teal-700 dark:text-gray-300 dark:bg-gray-800/60
-                      dark:hover:bg-teal-900/30 dark:hover:text-teal-300 transition-colors">
+                      dark:hover:bg-teal-900/30 dark:hover:text-teal-300 transition-colors
+                      disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-gray-50 disabled:hover:text-gray-600 dark:disabled:hover:bg-gray-800/60 dark:disabled:hover:text-gray-300">
                     <Archive size={12} />归档
                   </button>
-                  <button onClick={() => handleEdit(ds)}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/40 opacity-0 group-hover:opacity-100 transition-all"><Pencil size={14} /></button>
-                  <button onClick={() => setDeleteTarget(ds)}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/40 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={14} /></button>
+                  <button onClick={() => handleEdit(ds)} disabled={isDatasetBusy(ds.id)}
+                    title={isDatasetBusy(ds.id) ? '任务进行中，暂不可编辑' : undefined}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/40 opacity-0 group-hover:opacity-100 transition-all disabled:cursor-not-allowed disabled:hover:text-gray-400 disabled:hover:bg-transparent disabled:opacity-30 disabled:group-hover:opacity-30"><Pencil size={14} /></button>
+                  <button onClick={() => setDeleteTarget(ds)} disabled={isDatasetBusy(ds.id)}
+                    title={isDatasetBusy(ds.id) ? '任务进行中，暂不可删除' : undefined}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/40 opacity-0 group-hover:opacity-100 transition-all disabled:cursor-not-allowed disabled:hover:text-gray-400 disabled:hover:bg-transparent disabled:opacity-30 disabled:group-hover:opacity-30"><Trash2 size={14} /></button>
                 </div>
               </motion.div>
             ))}

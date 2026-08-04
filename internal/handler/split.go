@@ -21,6 +21,7 @@ type SplitHandler struct {
 	datasetStore *db.DatasetStore
 	modelStore   *db.ModelStore
 	audio        *service.AudioService
+	tm           *TaskManager
 }
 
 // SplitResponse returns the two new entries from a split operation.
@@ -31,8 +32,8 @@ type SplitResponse struct {
 	Total   int64    `json:"total"`
 }
 
-func NewSplitHandler(entryStore *db.EntryStore, datasetStore *db.DatasetStore, modelStore *db.ModelStore, audio *service.AudioService) *SplitHandler {
-	return &SplitHandler{entryStore: entryStore, datasetStore: datasetStore, modelStore: modelStore, audio: audio}
+func NewSplitHandler(entryStore *db.EntryStore, datasetStore *db.DatasetStore, modelStore *db.ModelStore, audio *service.AudioService, tm *TaskManager) *SplitHandler {
+	return &SplitHandler{entryStore: entryStore, datasetStore: datasetStore, modelStore: modelStore, audio: audio, tm: tm}
 }
 
 func (h *SplitHandler) Split(c echo.Context) error {
@@ -55,6 +56,9 @@ func (h *SplitHandler) Split(c echo.Context) error {
 	}
 	if entry == nil {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "entry not found"})
+	}
+	if err := datasetBusy(h.tm, entry.DatasetID); err != nil {
+		return err
 	}
 
 	modelName, datasetName, err := resolveNames(ctx, h.datasetStore, h.modelStore, entry.DatasetID)

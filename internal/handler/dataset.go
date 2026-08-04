@@ -12,10 +12,11 @@ import (
 
 type DatasetHandler struct {
 	store *db.DatasetStore
+	tm    *TaskManager
 }
 
-func NewDatasetHandler(store *db.DatasetStore) *DatasetHandler {
-	return &DatasetHandler{store: store}
+func NewDatasetHandler(store *db.DatasetStore, tm *TaskManager) *DatasetHandler {
+	return &DatasetHandler{store: store, tm: tm}
 }
 
 func (h *DatasetHandler) List(c echo.Context) error {
@@ -69,6 +70,9 @@ func (h *DatasetHandler) Update(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid datasetId"})
 	}
+	if err := datasetBusy(h.tm, id); err != nil {
+		return err
+	}
 	var req model.UpdateDatasetRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -87,6 +91,9 @@ func (h *DatasetHandler) Delete(c echo.Context) error {
 	id, err := strconv.ParseInt(c.Param("datasetId"), 10, 64)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid datasetId"})
+	}
+	if err := datasetBusy(h.tm, id); err != nil {
+		return err
 	}
 	deleted, err := h.store.Delete(c.Request().Context(), id)
 	if err != nil {

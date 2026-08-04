@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Inbox } from 'lucide-react';
+import { Inbox, Loader2 } from 'lucide-react';
 import { deleteEntry as deleteEntryApi, fetchEntries, updateEntry } from '../utils/api';
 import ItemRow from '../components/ItemRow';
 import SplitModal from '../components/SplitModal';
@@ -8,6 +8,7 @@ import MergeModal from '../components/MergeModal';
 import DeleteConfirmModal from '../components/DeleteConfirmModal';
 import SettingsPanel from '../components/SettingsPanel';
 import LabelSidebar from '../components/label/LabelSidebar';
+import { useTasks } from '../context/TaskContext';
 
 const PAGE_SIZE = 10;
 
@@ -83,6 +84,8 @@ export default function LabelPage() {
   const { datasetId: datasetIdParam } = useParams();
   const navigate = useNavigate();
   const datasetId = parseInt(datasetIdParam, 10);
+  const { isDatasetBusy } = useTasks();
+  const datasetBusy = isDatasetBusy(datasetId);
 
   const [entries, setEntries] = useState([]); // sparse cache: loaded pages filled, others undefined
   const [total, setTotal] = useState(0);
@@ -653,11 +656,20 @@ export default function LabelPage() {
           onMergeClick={handleMergeClick}
           volume={volume}
           onVolumeChange={handleVolumeChange}
+          busy={datasetBusy}
         />
       </div>
 
       {/* Main content */}
       <div className="flex-1 min-w-0 p-4">
+      {/* Busy banner */}
+      {datasetBusy && (
+        <div className="mb-3 px-4 py-2.5 rounded-lg bg-teal-50 dark:bg-teal-900/30 border border-teal-200 dark:border-teal-800
+          flex items-center gap-2 text-xs text-teal-700 dark:text-teal-300">
+          <Loader2 size={13} className="animate-spin" />
+          数据集正在执行任务，写操作（编辑/切分/合并/删除）已锁定，任务完成后自动解锁
+        </div>
+      )}
       {/* Pagination top */}
       <div style={{ marginBottom: 18, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
         <div className="flex items-center gap-3 text-sm text-[color:var(--text-secondary)]">
@@ -743,6 +755,7 @@ export default function LabelPage() {
               countdownSeconds={countdownIdx === globalIdx ? countdownVal : null}
               countdownTotalSeconds={countdownIdx === globalIdx ? countdownTotalVal : null}
               volume={volume}
+              busy={datasetBusy}
             />
           );
         })}

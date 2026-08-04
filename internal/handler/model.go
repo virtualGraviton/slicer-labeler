@@ -11,11 +11,13 @@ import (
 )
 
 type ModelHandler struct {
-	store *db.ModelStore
+	store        *db.ModelStore
+	datasetStore *db.DatasetStore
+	tm           *TaskManager
 }
 
-func NewModelHandler(store *db.ModelStore) *ModelHandler {
-	return &ModelHandler{store: store}
+func NewModelHandler(store *db.ModelStore, datasetStore *db.DatasetStore, tm *TaskManager) *ModelHandler {
+	return &ModelHandler{store: store, datasetStore: datasetStore, tm: tm}
 }
 
 func (h *ModelHandler) List(c echo.Context) error {
@@ -80,6 +82,20 @@ func (h *ModelHandler) Delete(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid modelId"})
 	}
+
+	// A model cannot be deleted while any of its datasets is running a task.
+	datasets, err := h.datasetStore.ListByModel(c.Request().Context(), id)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	datasetIDs := make([]int64, 0, len(datasets))
+	for _, d := range datasets {
+		datasetIDs = append(datasetIDs, d.ID)
+	}
+	if h.tm.IsAnyBusy(datasetIDs) {
+		return c.JSON(http.StatusConflict, map[string]string{"error": "该模型下有数据集正在执行任务，暂时无法删除"})
+	}
+
 	deleted, err := h.store.Delete(c.Request().Context(), id)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})

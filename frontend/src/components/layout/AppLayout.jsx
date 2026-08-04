@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { Outlet, useLocation, Link } from 'react-router-dom';
 import { Sun, Moon, ChevronRight, Database } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import TaskListPanel from '../tasks/TaskListPanel';
+import { TaskProvider } from '../../context/TaskContext';
 
 export default function AppLayout() {
   const location = useLocation();
@@ -37,9 +39,10 @@ export default function AppLayout() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-teal-50/20 to-blue-50 dark:from-gray-950 dark:via-teal-950/20 dark:to-gray-900">
-      {/* Top bar */}
-      <header className="sticky top-0 z-[100] h-14 border-b border-gray-200/80 dark:border-gray-700/80 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl flex items-center px-6 gap-4">
+    <TaskProvider>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-teal-50/20 to-blue-50 dark:from-gray-950 dark:via-teal-950/20 dark:to-gray-900">
+        {/* Top bar */}
+        <header className="sticky top-0 z-[100] h-14 border-b border-gray-200/80 dark:border-gray-700/80 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl flex items-center px-6 gap-4">
         <Link to="/" className="flex items-center gap-2 shrink-0">
           <div className="w-7 h-7 rounded-lg bg-teal-600 flex items-center justify-center">
             <Database size={14} className="text-white" />
@@ -65,6 +68,7 @@ export default function AppLayout() {
 
         {/* Actions */}
         <div className="flex items-center gap-1 shrink-0">
+          <TaskListPanel />
           <button
             onClick={() => setDark(!dark)}
             className="p-2 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
@@ -89,6 +93,7 @@ export default function AppLayout() {
           </motion.div>
         </AnimatePresence>
       </main>
-    </div>
+      </div>
+    </TaskProvider>
   );
 }

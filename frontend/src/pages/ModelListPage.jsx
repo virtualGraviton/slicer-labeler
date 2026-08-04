@@ -5,6 +5,7 @@ import ModelCard from '../components/model/ModelCard';
 import ModelFormModal from '../components/model/ModelFormModal';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import { fetchModels, createModel, updateModel, deleteModel } from '../utils/api';
+import { useTasks } from '../context/TaskContext';
 
 const fadeIn = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { duration: 0.15 } };
 const fadeUp = { initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0 }, transition: { duration: 0.2 } };
@@ -15,6 +16,7 @@ export default function ModelListPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingModel, setEditingModel] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const { isModelBusy } = useTasks();
 
   const loadModels = useCallback(async () => {
     try {
@@ -84,7 +86,8 @@ export default function ModelListPage() {
           <motion.div key="grid" layout {...fadeIn}
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
             {models.map((m, i) => (
-              <ModelCard key={m.id} model={m} index={i} onEdit={handleEdit} onDelete={setDeleteTarget} />
+              <ModelCard key={m.id} model={m} index={i} onEdit={handleEdit} onDelete={setDeleteTarget}
+                deleteDisabled={isModelBusy(m.id)} />
             ))}
           </motion.div>
         )}

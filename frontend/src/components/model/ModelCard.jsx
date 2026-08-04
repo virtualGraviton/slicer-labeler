@@ -2,7 +2,7 @@ import { motion } from 'framer-motion';
 import { Pencil, Trash2, Layers, Clock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-export default function ModelCard({ model, index, onEdit, onDelete }) {
+export default function ModelCard({ model, index, onEdit, onDelete, deleteDisabled = false }) {
   const navigate = useNavigate();
   const createdAt = new Date(model.created_at).toLocaleDateString('zh-CN', {
     year: 'numeric', month: 'short', day: 'numeric',
@@ -31,8 +31,9 @@ export default function ModelCard({ model, index, onEdit, onDelete }) {
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(model); }}
-          className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-900/40 transition-colors"
-          title="删除"
+          disabled={deleteDisabled}
+          title={deleteDisabled ? '该模型下有数据集正在执行任务，暂不可删除' : '删除'}
+          className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-900/40 transition-colors disabled:cursor-not-allowed disabled:hover:text-gray-400 disabled:hover:bg-transparent disabled:opacity-30"
         >
           <Trash2 size={14} />
         </button>

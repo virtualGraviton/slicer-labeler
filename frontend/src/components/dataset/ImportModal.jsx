@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Upload, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
-import { importDataset, subscribeImportJob } from '../../utils/api';
+import { importDataset, subscribeTask } from '../../utils/api';
 
 // 处理阶段（与后端 import.go 的 stage 对应）
 const STAGES = [
@@ -53,7 +53,7 @@ export default function ImportModal({ open, dataset, onClose }) {
     try {
       const { jobId } = await importDataset(dataset.id, file, setUploadPercent);
       setPhase('processing');
-      subscribeImportJob(jobId, {
+      subscribeTask(jobId, {
         onEvent: (ev) => setJob(ev),
         onDone: (ev) => { setJob(ev); setPhase('done'); },
         onError: (msg) => { setError(msg); setPhase('error'); },

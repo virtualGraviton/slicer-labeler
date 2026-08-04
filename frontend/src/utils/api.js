@@ -134,11 +134,31 @@ export function importDataset(datasetId, file, onProgress) {
   });
 }
 
-// subscribeImportJob consumes the SSE progress stream of an import job.
-// onEvent fires on each push ({status, stage, progress, imported, missing, orphans, error});
-// the stream is closed automatically on terminal (done/error) events.
-export function subscribeImportJob(jobId, { onEvent, onDone, onError }) {
-  const es = new EventSource(`${BASE}/api/import-jobs/${jobId}/stream`);
+// ─── Tasks ───
+
+// fetchTasks returns all known tasks (newest first), including terminal ones.
+export async function fetchTasks() {
+  return request('/api/tasks');
+}
+
+// subscribeTasks opens the long-lived global task event stream. onSnapshot
+// receives the full task list (sent on connect/reconnect); onTaskCreated fires
+// for each newly started task. The EventSource auto-reconnects on drop.
+export function subscribeTasks({ onSnapshot, onTaskCreated }) {
+  const es = new EventSource(`${BASE}/api/tasks/events`);
+  es.onmessage = (e) => {
+    let ev;
+    try { ev = JSON.parse(e.data); } catch { return; }
+    if (ev.type === 'snapshot' && onSnapshot) onSnapshot(ev.tasks || []);
+    else if (ev.type === 'task_created' && ev.task && onTaskCreated) onTaskCreated(ev.task);
+  };
+  return es;
+}
+
+// subscribeTask consumes the SSE progress stream of a single task (import or
+// archive). onEvent fires on each push; the stream closes at terminal states.
+export function subscribeTask(taskId, { onEvent, onDone, onError }) {
+  const es = new EventSource(`${BASE}/api/tasks/${taskId}/stream`);
   es.onmessage = (e) => {
     let ev;
     try { ev = JSON.parse(e.data); } catch { return; }
@@ -148,7 +168,7 @@ export function subscribeImportJob(jobId, { onEvent, onDone, onError }) {
       if (onDone) onDone(ev);
     } else if (ev.status === 'error') {
       es.close();
-      if (onError) onError(ev.error || '处理失败');
+      if (onError) onError(ev.error || '任务失败');
     }
   };
   es.onerror = () => {
@@ -158,6 +178,7 @@ export function subscribeImportJob(jobId, { onEvent, onDone, onError }) {
   return es;
 }
 
+// archiveDataset starts an async archive task and resolves to { jobId }.
 export async function archiveDataset(datasetId) {
   return request(`/api/datasets/${datasetId}/archive`, { method: 'POST' });
 }
