@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { Inbox } from 'lucide-react';
 import { deleteEntry as deleteEntryApi, fetchEntries, updateEntry } from '../utils/api';
 import ItemRow from '../components/ItemRow';
 import SplitModal from '../components/SplitModal';
@@ -620,6 +621,24 @@ export default function LabelPage() {
     );
   }
 
+  // 空数据集：只保留顶级 header，隐藏侧栏/分页/列表等其余组件
+  if (total === 0) {
+    return (
+      <div className="mx-auto max-w-[1400px] px-8 py-6 min-h-screen">
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-teal-50 dark:bg-teal-900/30 flex items-center justify-center">
+            <Inbox size={28} className="text-[color:var(--accent)]" />
+          </div>
+          <p className="text-lg font-medium text-[color:var(--text-primary)]">该数据集暂无条目</p>
+          <p className="text-sm text-[color:var(--text-secondary)] max-w-sm">
+            可通过数据集列表页的「导入」功能，将推理机的音频压缩包（zip / tar.gz）导入到此数据集
+          </p>
+          <button className={BTN_ACCENT} onClick={() => navigate(-1)}>返回数据集列表</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="flex gap-0 min-h-[calc(100vh-56px)]" ref={appContainerRef}>
@@ -727,65 +746,6 @@ export default function LabelPage() {
             />
           );
         })}
-      </div>
-
-      {/* Pagination bottom */}
-      <div style={{ display: 'flex', justifyContent: 'center' }}>
-        <div className="flex items-center gap-3 text-sm text-[color:var(--text-secondary)]">
-          <button
-            className={BTN_SM}
-            onClick={() => goToPage(0)}
-            disabled={currentPage === 0}
-          >
-            {'<<'}
-          </button>
-          <button
-            className={BTN_SM}
-            onClick={() => goToPage(currentPage - 1)}
-            disabled={currentPage === 0}
-          >
-            {'<'}
-          </button>
-          <span className="min-w-[100px] text-center">
-            {currentPage + 1} / {totalPages}
-          </span>
-          <button
-            className={BTN_SM}
-            onClick={() => goToPage(currentPage + 1)}
-            disabled={currentPage === totalPages - 1}
-          >
-            {'>'}
-          </button>
-          <button
-            className={BTN_SM}
-            onClick={() => goToPage(totalPages - 1)}
-            disabled={currentPage === totalPages - 1}
-          >
-            {'>>'}
-          </button>
-          <input
-            type="number"
-            className="page-jump-input"
-            placeholder="页"
-            min="1"
-            max={totalPages}
-            value={jumpInput}
-            onChange={(e) => setJumpInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleJumpPage()}
-            style={{
-              width: 50,
-              background: 'var(--input-bg)',
-              border: '1px solid var(--card-border)',
-              borderRadius: 6,
-              color: 'var(--text-primary)',
-              padding: '4px 8px',
-              fontSize: 13,
-              textAlign: 'center',
-              outline: 'none',
-            }}
-          />
-          <button className={BTN_SM} onClick={handleJumpPage}>跳转</button>
-        </div>
       </div>
 
       {/* Modals */}
