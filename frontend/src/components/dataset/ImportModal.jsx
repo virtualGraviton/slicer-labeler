@@ -26,6 +26,7 @@ export default function ImportModal({ open, dataset, onClose }) {
   const [uploadPercent, setUploadPercent] = useState(0);
   const [job, setJob] = useState(null);
   const [error, setError] = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);
   const fileRef = useRef(null);
 
   const reset = () => {
@@ -33,6 +34,7 @@ export default function ImportModal({ open, dataset, onClose }) {
     setUploadPercent(0);
     setJob(null);
     setError('');
+    setSelectedFile(null);
     if (fileRef.current) fileRef.current.value = '';
   };
 
@@ -109,8 +111,28 @@ export default function ImportModal({ open, dataset, onClose }) {
                   <Upload size={18} />
                   <span className="text-sm">点击选择压缩包</span>
                   <input ref={fileRef} type="file" accept=".zip,.tar.gz,.tgz" className="hidden"
-                    onChange={() => setError('')} />
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null;
+                      setSelectedFile(file);
+                      setError('');
+                    }} />
                 </label>
+
+                {selectedFile && (
+                  <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700">
+                    <div className="w-9 h-9 rounded-lg bg-teal-100 dark:bg-teal-900/40 flex items-center justify-center shrink-0">
+                      <Upload size={15} className="text-teal-600 dark:text-teal-400" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{selectedFile.name}</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500">
+                        {(selectedFile.size / (1024 * 1024)).toFixed(1)} MB
+                        {selectedFile.name.toLowerCase().endsWith('.zip') ? ' · ZIP' : ' · TAR.GZ'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {error && <p className="text-sm text-red-500 flex items-center gap-1"><AlertCircle size={14} />{error}</p>}
                 <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-800">
                   <button
@@ -122,7 +144,9 @@ export default function ImportModal({ open, dataset, onClose }) {
                   </button>
                   <button
                     onClick={handleStart}
-                    className="px-4 py-2 text-sm font-medium rounded-lg text-white bg-teal-600 hover:bg-teal-700 transition-colors"
+                    disabled={!selectedFile}
+                    title={selectedFile ? undefined : '请先选择压缩包'}
+                    className="px-4 py-2 text-sm font-medium rounded-lg text-white bg-teal-600 hover:bg-teal-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     开始导入
                   </button>
