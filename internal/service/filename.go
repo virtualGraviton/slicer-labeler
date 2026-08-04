@@ -1,6 +1,10 @@
 package service
 
-import "strconv"
+import (
+	"path/filepath"
+	"strconv"
+	"strings"
+)
 
 // SampleRate is the fixed audio sample rate of slicer outputs (verified against
 // actual wav headers). Coordinate fields in filenames are samples at this rate.
@@ -12,9 +16,11 @@ const SampleRate = 32000
 //
 // The second coordinate pair is relative to the first-level chunk (ch), so
 // absolute time in the original video = chStartSec + startSample/SampleRate.
+// Accepts the basename with or without the trailing ".wav".
 // Returns nil when the filename is not parseable (legacy/foreign data).
 func ParseEntryMetaData(basename string) map[string]interface{} {
-	bvid, p, ch, chStart, chEnd, start, end, ok := ParseFilename(basename)
+	base := strings.TrimSuffix(basename, filepath.Ext(basename))
+	bvid, p, ch, chStart, chEnd, start, end, ok := ParseFilename(base)
 	if !ok {
 		return nil
 	}

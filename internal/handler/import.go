@@ -150,8 +150,14 @@ func (h *ImportHandler) Import(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "missing file field"})
 	}
-	ext := strings.ToLower(filepath.Ext(file.Filename))
-	if ext != ".zip" && ext != ".tar.gz" && ext != ".tgz" {
+	// filepath.Ext only returns the last suffix (.gz for .tar.gz), so check by name
+	ext := strings.ToLower(file.Filename)
+	switch {
+	case strings.HasSuffix(ext, ".zip"):
+		ext = ".zip"
+	case strings.HasSuffix(ext, ".tar.gz"), strings.HasSuffix(ext, ".tgz"):
+		ext = ".tar.gz"
+	default:
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "only .zip / .tar.gz bundles are supported"})
 	}
 

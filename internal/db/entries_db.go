@@ -19,7 +19,7 @@ type Entry struct {
 	Speaker   string                 `json:"speaker" gorm:"type:text;not null;default:''"`
 	Language  string                 `json:"language" gorm:"type:text;not null;default:'';check:language_valid,language = '' OR language ~ '^[A-Z]{2}$'"`
 	Text      string                 `json:"text" gorm:"type:text;not null;default:''"`
-	MetaData  map[string]interface{} `json:"metaData" gorm:"type:jsonb;not null;default:'{}'"`
+	MetaData  map[string]interface{} `json:"metaData" gorm:"type:jsonb;not null;default:'{}';serializer:json"`
 	Deleted   bool                   `json:"deleted" gorm:"not null;default:false"`
 	SortOrder float64                `json:"sortOrder" gorm:"not null;default:0"`
 	CreatedAt time.Time              `json:"created_at" gorm:"autoCreateTime"`
