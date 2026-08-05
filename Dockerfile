@@ -1,28 +1,25 @@
-FROM node:22-bookworm-slim AS build
+# Build stage
+FROM golang:1.25-bookworm AS build
 
-ARG APP_VERSION=dev
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
-ENV APP_VERSION=${APP_VERSION}
-RUN npm run build
+COPY go.mod go.sum ./
+RUN GOPROXY=https://goproxy.cn,direct go mod download
 
-FROM node:22-bookworm-slim
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o slicer-labeler .
+
+# Runtime stage
+FROM debian:bookworm-slim
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-ENV NODE_ENV=production
+COPY --from=build /app/slicer-labeler .
+
 ENV HOST=0.0.0.0
-ENV PORT=3000
-ENV LABELER_DATA_ROOT=/data/dataset
+ENV PORT=8080
 
-COPY package*.json ./
-COPY --from=build /app/dist ./dist
-COPY server ./server
-
-EXPOSE 3000
-CMD ["node", "server/server.mjs"]
+EXPOSE 8080
+CMD ["./slicer-labeler"]
