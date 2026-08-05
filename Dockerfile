@@ -3,10 +3,10 @@ FROM golang:1.25-bookworm AS build
 
 WORKDIR /app
 COPY go.mod go.sum ./
-RUN GOPROXY=https://goproxy.cn,direct GONOSUMCHECK='*' GONOSUMDB='*' GOFLAGS=-insecure go mod download
+RUN GOPROXY=https://goproxy.cn,direct go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GONOSUMCHECK='*' GONOSUMDB='*' GOFLAGS=-insecure go build -o slicer-labeler .
+RUN CGO_ENABLED=0 GOOS=linux go build -o slicer-labeler .
 
 # Runtime stage
 FROM debian:bookworm-slim

@@ -1,0 +1,3 @@
+# Cloudflare Pages 反向代理：把 /api/* 转发到后端，浏览器视角同源，规避跨域
+# 把下方域名替换为后端实际域名（必须是 HTTPS）
+/api/*  https://labeler.fenglai.xyz/api/:splat  200
