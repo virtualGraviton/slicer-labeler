@@ -64,14 +64,17 @@ export default function LoginPage() {
                 <Github size={16} />
                 使用 GitHub 登录
               </a>
-              <button
-                onClick={handleDevLogin}
-                disabled={devLoading}
-                className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-sm font-medium rounded-lg border border-teal-300 dark:border-teal-700 text-teal-700 dark:text-teal-300 hover:bg-teal-50 dark:hover:bg-teal-900/30 transition-colors disabled:opacity-50"
-              >
-                {devLoading ? <Loader2 size={14} className="animate-spin" /> : null}
-                开发环境一键登录
-              </button>
+              {/* 仅开发环境（vite dev）显示；生产构建（vite build）自动隐藏 */}
+              {import.meta.env.DEV && (
+                <button
+                  onClick={handleDevLogin}
+                  disabled={devLoading}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-sm font-medium rounded-lg border border-teal-300 dark:border-teal-700 text-teal-700 dark:text-teal-300 hover:bg-teal-50 dark:hover:bg-teal-900/30 transition-colors disabled:opacity-50"
+                >
+                  {devLoading ? <Loader2 size={14} className="animate-spin" /> : null}
+                  开发环境一键登录
+                </button>
+              )}
             </div>
           )}
         </div>
