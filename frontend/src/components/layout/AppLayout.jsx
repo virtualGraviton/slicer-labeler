@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate, Link } from 'react-router-dom';
-import { Sun, Moon, ChevronRight, Database, Settings, LogOut } from 'lucide-react';
+import { Sun, Moon, ChevronRight, Settings, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import TaskListPanel from '../tasks/TaskListPanel';
 import { TaskProvider } from '../../context/TaskContext';
@@ -47,9 +47,7 @@ export default function AppLayout() {
         {/* Top bar */}
         <header className="sticky top-0 z-[100] h-14 border-b border-gray-200/80 dark:border-gray-700/80 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl flex items-center px-6 gap-4">
         <Link to="/" className="flex items-center gap-2 shrink-0">
-          <div className="w-7 h-7 rounded-lg bg-teal-600 flex items-center justify-center">
-            <Database size={14} className="text-white" />
-          </div>
+          <img src="/favicon.svg" alt="Slicer Labeler" className="w-7 h-7 rounded-lg" />
           <span className="font-semibold text-gray-900 dark:text-gray-100 text-sm">Slicer Labeler</span>
         </Link>
 
