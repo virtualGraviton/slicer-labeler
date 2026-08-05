@@ -3,6 +3,7 @@ import { Plus, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ModelCard from '../components/model/ModelCard';
 import ModelFormModal from '../components/model/ModelFormModal';
+import GrantModal from '../components/grants/GrantModal';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import { fetchModels, createModel, updateModel, deleteModel } from '../utils/api';
 import { useTasks } from '../context/TaskContext';
@@ -16,6 +17,7 @@ export default function ModelListPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingModel, setEditingModel] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [grantTarget, setGrantTarget] = useState(null);
   const { isModelBusy } = useTasks();
 
   const loadModels = useCallback(async () => {
@@ -87,7 +89,7 @@ export default function ModelListPage() {
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
             {models.map((m, i) => (
               <ModelCard key={m.id} model={m} index={i} onEdit={handleEdit} onDelete={setDeleteTarget}
-                deleteDisabled={isModelBusy(m.id)} />
+                onGrant={setGrantTarget} deleteDisabled={isModelBusy(m.id)} />
             ))}
           </motion.div>
         )}
@@ -95,6 +97,9 @@ export default function ModelListPage() {
 
       <ModelFormModal open={formOpen} model={editingModel} onSave={handleSave}
         onClose={() => { setFormOpen(false); setEditingModel(null); }} />
+
+      <GrantModal open={!!grantTarget} resourceType="model" resourceId={grantTarget?.id}
+        resourceName={grantTarget?.name} onClose={() => setGrantTarget(null)} />
 
       <ConfirmDialog open={!!deleteTarget} title="删除模型"
         message={`确定要删除模型「${deleteTarget?.name}」吗？该模型下的所有数据集和标注条目将被一并删除。`}

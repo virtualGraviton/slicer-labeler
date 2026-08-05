@@ -1,13 +1,100 @@
 const BASE = '';
 
+// ─── Auth token (localStorage-backed) ───
+let _token = localStorage.getItem('token') || '';
+
+export function getToken() {
+  return _token;
+}
+
+export function setToken(token) {
+  _token = token || '';
+  if (token) localStorage.setItem('token', token);
+  else localStorage.removeItem('token');
+}
+
+function authHeaders(options) {
+  const headers = { ...(options.headers || {}) };
+  const isForm = options.body instanceof FormData;
+  if (!isForm && !(options.method && options.method !== 'GET' && headers['Content-Type'])) {
+    headers['Content-Type'] = 'application/json';
+  }
+  if (_token) headers['Authorization'] = `Bearer ${_token}`;
+  return headers;
+}
+
 async function request(url, options = {}) {
-  const res = await fetch(BASE + url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Request failed');
+  const res = await fetch(BASE + url, { ...options, headers: authHeaders(options) });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    setToken('');
+    window.dispatchEvent(new Event('auth:unauthorized'));
+  }
+  if (!res.ok) throw new Error(data.error || data.message || 'Request failed');
   return data;
+}
+
+// ─── Auth APIs ───
+
+export async function getMe() {
+  return request('/api/auth/me');
+}
+
+export async function devLogin() {
+  return request('/api/auth/dev-login', { method: 'POST' });
+}
+
+// ─── Users / Roles / Grants APIs ───
+
+export async function fetchUsers() {
+  return request('/api/users');
+}
+
+// Minimal user directory for the grant UI (visible to any authenticated user).
+export async function fetchUserDirectory() {
+  return request('/api/users/directory');
+}
+
+export async function updateUserRole(userId, roleId) {
+  return request(`/api/users/${userId}/role`, { method: 'PUT', body: JSON.stringify({ roleId }) });
+}
+
+export async function toggleUserActive(userId, active) {
+  return request(`/api/users/${userId}/active`, { method: 'PUT', body: JSON.stringify({ active }) });
+}
+
+export async function fetchRoles() {
+  return request('/api/roles');
+}
+
+export async function createRole(data) {
+  return request('/api/roles', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function updateRole(roleId, data) {
+  return request(`/api/roles/${roleId}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export async function deleteRole(roleId) {
+  return request(`/api/roles/${roleId}`, { method: 'DELETE' });
+}
+
+export async function fetchGrants(resourceType, resourceId) {
+  return request(`/api/grants?resourceType=${resourceType}&resourceId=${resourceId}`);
+}
+
+export async function addGrant(resourceType, resourceId, userId, permission) {
+  return request(`/api/grants?resourceType=${resourceType}&resourceId=${resourceId}`, {
+    method: 'POST',
+    body: JSON.stringify({ userId, permission }),
+  });
+}
+
+export async function removeGrant(resourceType, resourceId, userId, permission) {
+  return request(`/api/grants?resourceType=${resourceType}&resourceId=${resourceId}`, {
+    method: 'DELETE',
+    body: JSON.stringify({ userId, permission }),
+  });
 }
 
 // ─── Model APIs ───
@@ -42,6 +129,10 @@ export async function deleteModel(id) {
 
 export async function fetchDatasets(modelId) {
   return request(`/api/models/${modelId}/datasets`);
+}
+
+export async function getDataset(id) {
+  return request(`/api/datasets/${id}`);
 }
 
 export async function createDataset(modelId, data) {
@@ -82,7 +173,8 @@ export async function deleteEntry(entryId) {
 // ─── Audio ───
 
 export function getAudioUrl(entryId) {
-  return `/api/entries/${entryId}/audio`;
+  const q = _token ? `?token=${encodeURIComponent(_token)}` : '';
+  return `/api/entries/${entryId}/audio${q}`;
 }
 
 // ─── Split ───
@@ -118,6 +210,7 @@ export function importDataset(datasetId, file, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${BASE}/api/datasets/${datasetId}/import`);
+    if (_token) xhr.setRequestHeader('Authorization', `Bearer ${_token}`);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
     };
@@ -144,8 +237,14 @@ export async function fetchTasks() {
 // subscribeTasks opens the long-lived global task event stream. onSnapshot
 // receives the full task list (sent on connect/reconnect); onTaskCreated fires
 // for each newly started task. The EventSource auto-reconnects on drop.
+// EventSource cannot set custom headers, so the token travels as a query param.
+function esUrl(path) {
+  const q = _token ? `?token=${encodeURIComponent(_token)}` : '';
+  return `${BASE}${path}${q}`;
+}
+
 export function subscribeTasks({ onSnapshot, onTaskCreated }) {
-  const es = new EventSource(`${BASE}/api/tasks/events`);
+  const es = new EventSource(esUrl('/api/tasks/events'));
   es.onmessage = (e) => {
     let ev;
     try { ev = JSON.parse(e.data); } catch { return; }
@@ -158,7 +257,7 @@ export function subscribeTasks({ onSnapshot, onTaskCreated }) {
 // subscribeTask consumes the SSE progress stream of a single task (import or
 // archive). onEvent fires on each push; the stream closes at terminal states.
 export function subscribeTask(taskId, { onEvent, onDone, onError }) {
-  const es = new EventSource(`${BASE}/api/tasks/${taskId}/stream`);
+  const es = new EventSource(esUrl(`/api/tasks/${taskId}/stream`));
   es.onmessage = (e) => {
     let ev;
     try { ev = JSON.parse(e.data); } catch { return; }

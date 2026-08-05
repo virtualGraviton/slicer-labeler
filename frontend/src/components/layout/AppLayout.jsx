@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
-import { Outlet, useLocation, Link } from 'react-router-dom';
-import { Sun, Moon, ChevronRight, Database } from 'lucide-react';
+import { Outlet, useLocation, useNavigate, Link } from 'react-router-dom';
+import { Sun, Moon, ChevronRight, Database, Settings, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import TaskListPanel from '../tasks/TaskListPanel';
 import { TaskProvider } from '../../context/TaskContext';
+import { useAuth } from '../../context/AuthContext';
 
 export default function AppLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, isAdmin, logout } = useAuth();
   const isLabelPage = location.pathname.includes('/entries');
   const [dark, setDark] = useState(() => {
     const stored = typeof window !== 'undefined' && localStorage.getItem('slicer-labeler.theme');
@@ -68,6 +71,15 @@ export default function AppLayout() {
 
         {/* Actions */}
         <div className="flex items-center gap-1 shrink-0">
+          {isAdmin && (
+            <Link
+              to="/admin"
+              title="管理（用户/角色）"
+              className="p-2 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            >
+              <Settings size={16} />
+            </Link>
+          )}
           <TaskListPanel />
           <button
             onClick={() => setDark(!dark)}
@@ -76,6 +88,27 @@ export default function AppLayout() {
           >
             {dark ? <Sun size={16} /> : <Moon size={16} />}
           </button>
+
+          <div className="flex items-center gap-2 ml-2 pl-3 border-l border-gray-200 dark:border-gray-700">
+            {user?.avatarUrl ? (
+              <img src={user.avatarUrl} alt={user.displayName} className="w-7 h-7 rounded-full object-cover" />
+            ) : (
+              <div className="w-7 h-7 rounded-full bg-teal-600 flex items-center justify-center text-white text-xs font-semibold">
+                {(user?.displayName || '?').slice(0, 1).toUpperCase()}
+              </div>
+            )}
+            <div className="hidden md:block leading-tight">
+              <div className="text-xs font-medium text-gray-800 dark:text-gray-200 max-w-[120px] truncate">{user?.displayName}</div>
+              <div className="text-[10px] text-gray-400">{user?.role?.name}</div>
+            </div>
+            <button
+              onClick={() => { logout(); navigate('/login', { replace: true }); }}
+              title="退出登录"
+              className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/40 transition-colors"
+            >
+              <LogOut size={14} />
+            </button>
+          </div>
         </div>
       </header>
 

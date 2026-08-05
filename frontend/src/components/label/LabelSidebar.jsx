@@ -12,6 +12,7 @@ export default function LabelSidebar({
   volume,
   onVolumeChange,
   busy = false,
+  readOnly = false,
 }) {
   const trackRef = useRef(null);
   const pct = Math.round(volume * 100);
@@ -86,8 +87,8 @@ export default function LabelSidebar({
       {/* 合并 */}
       <button
         onClick={onMergeClick}
-        disabled={busy || checkedCount < 2}
-        title={busy ? '任务进行中，暂不可合并' : undefined}
+        disabled={busy || readOnly || checkedCount < 2}
+        title={busy ? '任务进行中，暂不可合并' : (readOnly ? '无写权限，暂不可合并' : undefined)}
         className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg
           text-emerald-700 bg-emerald-50 hover:bg-emerald-100
           dark:text-emerald-300 dark:bg-emerald-900/30 dark:hover:bg-emerald-900/50

@@ -42,9 +42,10 @@ type ImportHandler struct {
 	storage      *service.StorageService
 	tmpDir       string
 	tm           *TaskManager
+	auth         *service.AuthService
 }
 
-func NewImportHandler(entryStore *db.EntryStore, datasetStore *db.DatasetStore, modelStore *db.ModelStore, storage *service.StorageService, tm *TaskManager) *ImportHandler {
+func NewImportHandler(entryStore *db.EntryStore, datasetStore *db.DatasetStore, modelStore *db.ModelStore, storage *service.StorageService, tm *TaskManager, auth *service.AuthService) *ImportHandler {
 	return &ImportHandler{
 		entryStore:   entryStore,
 		datasetStore: datasetStore,
@@ -52,6 +53,7 @@ func NewImportHandler(entryStore *db.EntryStore, datasetStore *db.DatasetStore, 
 		storage:      storage,
 		tmpDir:       storage.TmpDir(),
 		tm:           tm,
+		auth:         auth,
 	}
 }
 
@@ -70,6 +72,10 @@ func (h *ImportHandler) Import(c echo.Context) error {
 	}
 	if d == nil {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "dataset not found"})
+	}
+	user, _ := c.Get("user").(*db.User)
+	if !h.auth.CanWriteDataset(ctx, user, datasetID) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "无权限"})
 	}
 
 	file, err := c.FormFile("file")

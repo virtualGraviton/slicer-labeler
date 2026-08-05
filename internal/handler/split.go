@@ -22,6 +22,7 @@ type SplitHandler struct {
 	modelStore   *db.ModelStore
 	audio        *service.AudioService
 	tm           *TaskManager
+	auth         *service.AuthService
 }
 
 // SplitResponse returns the two new entries from a split operation.
@@ -32,8 +33,8 @@ type SplitResponse struct {
 	Total   int64    `json:"total"`
 }
 
-func NewSplitHandler(entryStore *db.EntryStore, datasetStore *db.DatasetStore, modelStore *db.ModelStore, audio *service.AudioService, tm *TaskManager) *SplitHandler {
-	return &SplitHandler{entryStore: entryStore, datasetStore: datasetStore, modelStore: modelStore, audio: audio, tm: tm}
+func NewSplitHandler(entryStore *db.EntryStore, datasetStore *db.DatasetStore, modelStore *db.ModelStore, audio *service.AudioService, tm *TaskManager, auth *service.AuthService) *SplitHandler {
+	return &SplitHandler{entryStore: entryStore, datasetStore: datasetStore, modelStore: modelStore, audio: audio, tm: tm, auth: auth}
 }
 
 func (h *SplitHandler) Split(c echo.Context) error {
@@ -56,6 +57,10 @@ func (h *SplitHandler) Split(c echo.Context) error {
 	}
 	if entry == nil {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "entry not found"})
+	}
+	user, _ := c.Get("user").(*db.User)
+	if !h.auth.CanWriteDataset(c.Request().Context(), user, entry.DatasetID) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "无权限"})
 	}
 	if err := datasetBusy(h.tm, entry.DatasetID); err != nil {
 		return err

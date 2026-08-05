@@ -31,15 +31,17 @@ type ArchiveHandler struct {
 	modelStore   *db.ModelStore
 	storage      *service.StorageService
 	tm           *TaskManager
+	auth         *service.AuthService
 }
 
-func NewArchiveHandler(entryStore *db.EntryStore, datasetStore *db.DatasetStore, modelStore *db.ModelStore, storage *service.StorageService, tm *TaskManager) *ArchiveHandler {
+func NewArchiveHandler(entryStore *db.EntryStore, datasetStore *db.DatasetStore, modelStore *db.ModelStore, storage *service.StorageService, tm *TaskManager, auth *service.AuthService) *ArchiveHandler {
 	return &ArchiveHandler{
 		entryStore:   entryStore,
 		datasetStore: datasetStore,
 		modelStore:   modelStore,
 		storage:      storage,
 		tm:           tm,
+		auth:         auth,
 	}
 }
 
@@ -57,6 +59,10 @@ func (h *ArchiveHandler) Archive(c echo.Context) error {
 	}
 	if d == nil {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "dataset not found"})
+	}
+	user, _ := c.Get("user").(*db.User)
+	if !h.auth.CanWriteDataset(ctx, user, datasetID) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "无权限"})
 	}
 
 	modelName, datasetName, err := resolveNames(ctx, h.datasetStore, h.modelStore, datasetID)

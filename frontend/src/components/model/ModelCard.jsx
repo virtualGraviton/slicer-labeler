@@ -1,12 +1,15 @@
 import { motion } from 'framer-motion';
-import { Pencil, Trash2, Layers, Clock } from 'lucide-react';
+import { Pencil, Trash2, Layers, Clock, Share2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-export default function ModelCard({ model, index, onEdit, onDelete, deleteDisabled = false }) {
+export default function ModelCard({ model, index, onEdit, onDelete, onGrant, deleteDisabled = false }) {
   const navigate = useNavigate();
   const createdAt = new Date(model.created_at).toLocaleDateString('zh-CN', {
     year: 'numeric', month: 'short', day: 'numeric',
   });
+  const canWrite = model.canWrite !== false;
+  const canDelete = model.canDelete !== false;
+  const canManage = model.canManage === true;
 
   return (
     <motion.div
@@ -22,17 +25,27 @@ export default function ModelCard({ model, index, onEdit, onDelete, deleteDisabl
     >
       {/* Hover actions */}
       <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+        {canManage && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onGrant(model); }}
+            className="p-1.5 rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 dark:hover:text-teal-400 dark:hover:bg-teal-900/40 transition-colors"
+            title="授权"
+          >
+            <Share2 size={14} />
+          </button>
+        )}
         <button
           onClick={(e) => { e.stopPropagation(); onEdit(model); }}
-          className="p-1.5 rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 dark:hover:text-teal-400 dark:hover:bg-teal-900/40 transition-colors"
-          title="编辑"
+          disabled={!canWrite}
+          title={canWrite ? '编辑' : '无编辑权限'}
+          className="p-1.5 rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 dark:hover:text-teal-400 dark:hover:bg-teal-900/40 transition-colors disabled:cursor-not-allowed disabled:hover:text-gray-400 disabled:hover:bg-transparent disabled:opacity-30"
         >
           <Pencil size={14} />
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(model); }}
-          disabled={deleteDisabled}
-          title={deleteDisabled ? '该模型下有数据集正在执行任务，暂不可删除' : '删除'}
+          disabled={!canDelete || deleteDisabled}
+          title={!canDelete ? '无删除权限' : (deleteDisabled ? '该模型下有数据集正在执行任务，暂不可删除' : '删除')}
           className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-900/40 transition-colors disabled:cursor-not-allowed disabled:hover:text-gray-400 disabled:hover:bg-transparent disabled:opacity-30"
         >
           <Trash2 size={14} />

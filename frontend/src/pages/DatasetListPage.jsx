@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Plus, ArrowLeft, Loader2, ExternalLink, Pencil, Trash2, Clock, Upload, Archive } from 'lucide-react';
+import { Plus, ArrowLeft, Loader2, ExternalLink, Pencil, Trash2, Clock, Upload, Archive, Share2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import DatasetFormModal from '../components/dataset/DatasetFormModal';
 import ImportModal from '../components/dataset/ImportModal';
+import GrantModal from '../components/grants/GrantModal';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import { getModel, fetchDatasets, createDataset, updateDataset, deleteDataset, archiveDataset } from '../utils/api';
 import { useTasks } from '../context/TaskContext';
@@ -29,6 +30,7 @@ export default function DatasetListPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [importTarget, setImportTarget] = useState(null);
   const [archiveTarget, setArchiveTarget] = useState(null);
+  const [grantTarget, setGrantTarget] = useState(null);
   const [archiving, setArchiving] = useState(false);
   const { isDatasetBusy } = useTasks();
 
@@ -92,8 +94,11 @@ export default function DatasetListPage() {
           {model?.description && <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{model.description}</p>}
         </div>
         <button onClick={handleCreate}
+          disabled={model?.canWrite === false}
+          title={model?.canWrite === false ? '无该模型的写权限' : undefined}
           className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl text-white
-            bg-teal-600 hover:bg-teal-700 shadow-lg shadow-teal-600/20 transition-all">
+            bg-teal-600 hover:bg-teal-700 shadow-lg shadow-teal-600/20 transition-all
+            disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-teal-600">
           <Plus size={16} />新建数据集
         </button>
       </div>
@@ -139,27 +144,34 @@ export default function DatasetListPage() {
                       bg-teal-50 hover:bg-teal-100 dark:text-teal-300 dark:bg-teal-900/30 dark:hover:bg-teal-900/50 transition-colors">
                     进入标注 <ExternalLink size={12} />
                   </button>
-                  <button onClick={() => setImportTarget(ds)} disabled={isDatasetBusy(ds.id)}
-                    title={isDatasetBusy(ds.id) ? '任务进行中，暂不可导入' : undefined}
+                  {ds.canManage && (
+                    <button onClick={() => setGrantTarget(ds)}
+                      title="授权"
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/40 transition-colors">
+                      <Share2 size={14} />
+                    </button>
+                  )}
+                  <button onClick={() => setImportTarget(ds)} disabled={!ds.canWrite || isDatasetBusy(ds.id)}
+                    title={!ds.canWrite ? '无写权限，暂不可导入' : (isDatasetBusy(ds.id) ? '任务进行中，暂不可导入' : undefined)}
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg text-gray-600
                       bg-gray-50 hover:bg-teal-50 hover:text-teal-700 dark:text-gray-300 dark:bg-gray-800/60
                       dark:hover:bg-teal-900/30 dark:hover:text-teal-300 transition-colors
                       disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-gray-50 disabled:hover:text-gray-600 dark:disabled:hover:bg-gray-800/60 dark:disabled:hover:text-gray-300">
                     <Upload size={12} />导入
                   </button>
-                  <button onClick={() => setArchiveTarget(ds)} disabled={isDatasetBusy(ds.id)}
-                    title={isDatasetBusy(ds.id) ? '任务进行中，暂不可归档' : undefined}
+                  <button onClick={() => setArchiveTarget(ds)} disabled={!ds.canWrite || isDatasetBusy(ds.id)}
+                    title={!ds.canWrite ? '无写权限，暂不可归档' : (isDatasetBusy(ds.id) ? '任务进行中，暂不可归档' : undefined)}
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg text-gray-600
                       bg-gray-50 hover:bg-teal-50 hover:text-teal-700 dark:text-gray-300 dark:bg-gray-800/60
                       dark:hover:bg-teal-900/30 dark:hover:text-teal-300 transition-colors
                       disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-gray-50 disabled:hover:text-gray-600 dark:disabled:hover:bg-gray-800/60 dark:disabled:hover:text-gray-300">
                     <Archive size={12} />归档
                   </button>
-                  <button onClick={() => handleEdit(ds)} disabled={isDatasetBusy(ds.id)}
-                    title={isDatasetBusy(ds.id) ? '任务进行中，暂不可编辑' : undefined}
+                  <button onClick={() => handleEdit(ds)} disabled={!ds.canWrite || isDatasetBusy(ds.id)}
+                    title={!ds.canWrite ? '无写权限' : (isDatasetBusy(ds.id) ? '任务进行中，暂不可编辑' : undefined)}
                     className="p-1.5 rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/40 opacity-0 group-hover:opacity-100 transition-all disabled:cursor-not-allowed disabled:hover:text-gray-400 disabled:hover:bg-transparent disabled:opacity-30 disabled:group-hover:opacity-30"><Pencil size={14} /></button>
-                  <button onClick={() => setDeleteTarget(ds)} disabled={isDatasetBusy(ds.id)}
-                    title={isDatasetBusy(ds.id) ? '任务进行中，暂不可删除' : undefined}
+                  <button onClick={() => setDeleteTarget(ds)} disabled={!ds.canDelete || isDatasetBusy(ds.id)}
+                    title={!ds.canDelete ? '无删除权限' : (isDatasetBusy(ds.id) ? '任务进行中，暂不可删除' : undefined)}
                     className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/40 opacity-0 group-hover:opacity-100 transition-all disabled:cursor-not-allowed disabled:hover:text-gray-400 disabled:hover:bg-transparent disabled:opacity-30 disabled:group-hover:opacity-30"><Trash2 size={14} /></button>
                 </div>
               </motion.div>
@@ -173,6 +185,9 @@ export default function DatasetListPage() {
 
       <ImportModal open={!!importTarget} dataset={importTarget}
         onClose={() => setImportTarget(null)} />
+
+      <GrantModal open={!!grantTarget} resourceType="dataset" resourceId={grantTarget?.id}
+        resourceName={grantTarget?.name} onClose={() => setGrantTarget(null)} />
 
       <ConfirmDialog open={!!deleteTarget} title="删除数据集"
         message={`确定要删除数据集「${deleteTarget?.name}」吗？该数据集下的所有标注条目将被一并删除。`}

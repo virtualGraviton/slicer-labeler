@@ -13,8 +13,15 @@ type Model struct {
 	ID          int64     `json:"id" gorm:"primaryKey;autoIncrement"`
 	Name        string    `json:"name" gorm:"type:text;not null"`
 	Description string    `json:"description" gorm:"type:text;not null;default:''"`
+	OwnerID     int64     `json:"ownerId" gorm:"not null;default:0;index"`
 	CreatedAt   time.Time `json:"created_at" gorm:"autoCreateTime;index"`
 	UpdatedAt   time.Time `json:"updated_at" gorm:"autoUpdateTime"`
+
+	// Computed fields (not persisted): capabilities for the requesting user.
+	CanRead   bool `json:"canRead" gorm:"-"`
+	CanWrite  bool `json:"canWrite" gorm:"-"`
+	CanDelete bool `json:"canDelete" gorm:"-"`
+	CanManage bool `json:"canManage" gorm:"-"`
 }
 
 func (Model) TableName() string { return "models" }
@@ -52,8 +59,8 @@ func (s *ModelStore) Get(ctx context.Context, id int64) (*Model, error) {
 	return &m, nil
 }
 
-func (s *ModelStore) Create(ctx context.Context, name, description string) (*Model, error) {
-	m := Model{Name: name, Description: description}
+func (s *ModelStore) Create(ctx context.Context, ownerID int64, name, description string) (*Model, error) {
+	m := Model{Name: name, Description: description, OwnerID: ownerID}
 	if err := s.db.WithContext(ctx).Create(&m).Error; err != nil {
 		return nil, fmt.Errorf("create model: %w", err)
 	}
@@ -81,4 +88,10 @@ func (s *ModelStore) Delete(ctx context.Context, id int64) (bool, error) {
 		return false, fmt.Errorf("delete model %d: %w", id, result.Error)
 	}
 	return result.RowsAffected > 0, nil
+}
+
+// BackfillOwner assigns ownerless (owner_id = 0) rows to ownerID. Used when the
+// first user is created so pre-auth resources remain accessible.
+func (s *ModelStore) BackfillOwner(ctx context.Context, ownerID int64) error {
+	return s.db.WithContext(ctx).Model(&Model{}).Where("owner_id = 0").Update("owner_id", ownerID).Error
 }

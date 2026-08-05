@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,7 +11,9 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"slicer-labeler/internal/db"
 	"slicer-labeler/internal/model"
+	"slicer-labeler/internal/service"
 )
 
 // Task is the in-memory runtime state of one import/archive job.
@@ -117,7 +120,7 @@ type TaskManager struct {
 	locks map[int64]string // datasetID -> running taskID
 
 	subMu   sync.Mutex
-	subs    map[int64]chan model.TaskEvent
+	subs    map[int64]*subscriber
 	nextSub int64
 }
 
@@ -125,7 +128,7 @@ func NewTaskManager() *TaskManager {
 	return &TaskManager{
 		tasks: map[string]*Task{},
 		locks: map[int64]string{},
-		subs:  map[int64]chan model.TaskEvent{},
+		subs:  map[int64]*subscriber{},
 	}
 }
 
@@ -208,15 +211,16 @@ func (m *TaskManager) IsAnyBusy(datasetIDs []int64) bool {
 	return false
 }
 
-// Subscribe registers a global event consumer. The returned cancel function
-// must be called when the consumer goes away.
-func (m *TaskManager) Subscribe() (<-chan model.TaskEvent, func()) {
+// Subscribe registers a global event consumer with an optional visibility
+// filter (nil means see everything). The returned cancel function must be
+// called when the consumer goes away.
+func (m *TaskManager) Subscribe(filter func(*Task) bool) (<-chan model.TaskEvent, func()) {
 	m.subMu.Lock()
 	defer m.subMu.Unlock()
 	m.nextSub++
 	id := m.nextSub
 	ch := make(chan model.TaskEvent, 64)
-	m.subs[id] = ch
+	m.subs[id] = &subscriber{ch: ch, filter: filter}
 	cancel := func() {
 		m.subMu.Lock()
 		delete(m.subs, id)
@@ -228,12 +232,25 @@ func (m *TaskManager) Subscribe() (<-chan model.TaskEvent, func()) {
 func (m *TaskManager) broadcast(ev model.TaskEvent) {
 	m.subMu.Lock()
 	defer m.subMu.Unlock()
-	for _, ch := range m.subs {
+	for _, s := range m.subs {
+		if s.filter != nil && ev.Task != nil {
+			m.mu.Lock()
+			t, ok := m.tasks[ev.Task.ID]
+			m.mu.Unlock()
+			if ok && !s.filter(t) {
+				continue
+			}
+		}
 		select {
-		case ch <- ev:
+		case s.ch <- ev:
 		default: // drop for slow consumers; snapshot covers reconnects
 		}
 	}
+}
+
+type subscriber struct {
+	ch     chan model.TaskEvent
+	filter func(*Task) bool
 }
 
 // datasetBusy returns a 409 when the dataset has a running task. Used by every
@@ -248,28 +265,64 @@ func datasetBusy(tm *TaskManager, datasetID int64) error {
 // --- TaskHandler: task listing + SSE streams ---
 
 type TaskHandler struct {
-	tm *TaskManager
+	tm   *TaskManager
+	auth *service.AuthService
 }
 
-func NewTaskHandler(tm *TaskManager) *TaskHandler {
-	return &TaskHandler{tm: tm}
+func NewTaskHandler(tm *TaskManager, auth *service.AuthService) *TaskHandler {
+	return &TaskHandler{tm: tm, auth: auth}
 }
 
-// List returns all known tasks (newest first).
+// visibleTasks filters the global task list down to what the user may see:
+// task-read-all grants everything; otherwise a task is visible when the user
+// can read its dataset.
+func (h *TaskHandler) visibleTasks(user *db.User) []model.TaskInfo {
+	all := h.tm.List()
+	if user != nil && h.auth.HasPerm(user, "task-read-all") {
+		return all
+	}
+	ctx := context.Background()
+	var out []model.TaskInfo
+	for _, t := range all {
+		if user != nil && h.auth.CanReadDataset(ctx, user, t.DatasetID) {
+			out = append(out, t)
+		}
+	}
+	if out == nil {
+		out = []model.TaskInfo{}
+	}
+	return out
+}
+
+// canReadTask builds a per-subscriber filter for the global events stream.
+func (h *TaskHandler) canReadTask(user *db.User) func(*Task) bool {
+	if user != nil && h.auth.HasPerm(user, "task-read-all") {
+		return nil
+	}
+	ctx := context.Background()
+	return func(t *Task) bool {
+		return h.auth.CanReadDataset(ctx, user, t.DatasetID)
+	}
+}
+
+// List returns the tasks visible to the requesting user (newest first).
 func (h *TaskHandler) List(c echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]interface{}{"data": h.tm.List()})
+	user, _ := c.Get("user").(*db.User)
+	return c.JSON(http.StatusOK, map[string]interface{}{"data": h.visibleTasks(user)})
 }
 
 // Events is a long-lived SSE stream of global task events. On connect it first
-// pushes a full snapshot, then forwards every task_created event in real time.
+// pushes a full snapshot (filtered to the user), then forwards every
+// task_created event the user is allowed to see.
 func (h *TaskHandler) Events(c echo.Context) error {
+	user, _ := c.Get("user").(*db.User)
 	w := c.Response()
 	sseHeaders(w)
 	w.WriteHeader(http.StatusOK)
 
-	ssePush(w, model.TaskEvent{Type: "snapshot", Tasks: h.tm.List()})
+	ssePush(w, model.TaskEvent{Type: "snapshot", Tasks: h.visibleTasks(user)})
 
-	ch, cancel := h.tm.Subscribe()
+	ch, cancel := h.tm.Subscribe(h.canReadTask(user))
 	defer cancel()
 
 	ticker := time.NewTicker(25 * time.Second)
@@ -294,9 +347,13 @@ func (h *TaskHandler) Events(c echo.Context) error {
 
 // Stream pushes progress of a single task until it reaches a terminal state.
 func (h *TaskHandler) Stream(c echo.Context) error {
+	user, _ := c.Get("user").(*db.User)
 	t := h.tm.Get(c.Param("taskId"))
 	if t == nil {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "task not found"})
+	}
+	if user == nil || (!h.auth.HasPerm(user, "task-read-all") && !h.auth.CanReadDataset(context.Background(), user, t.DatasetID)) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "无权限"})
 	}
 
 	w := c.Response()

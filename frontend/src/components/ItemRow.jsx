@@ -31,6 +31,7 @@ export default function ItemRow({
   showCountdown,
   volume,
   busy = false,
+  readOnly = false,
 }) {
   const [audioBuffer, setAudioBuffer] = useState(null);
   const [audioUrl, setAudioUrl] = useState('');
@@ -88,10 +89,10 @@ export default function ItemRow({
           className={TEXTAREA}
           value={entry.text}
           onChange={(e) => onTextChange(index, e.target.value)}
-          placeholder="Enter text..."
+          placeholder={readOnly ? '只读模式（无写权限）' : 'Enter text...'}
           rows={3}
-          disabled={busy}
-          title={busy ? '数据集正在执行任务，文本编辑已锁定' : undefined}
+          disabled={busy || readOnly}
+          title={busy ? '数据集正在执行任务，文本编辑已锁定' : (readOnly ? '无写权限，只读模式' : undefined)}
         />
         <div className="text-[11px] text-[color:var(--text-secondary)] flex gap-3 flex-wrap">
           {info && (
@@ -136,16 +137,16 @@ export default function ItemRow({
           <button
             className={BTN_SM_ACCENT}
             onClick={() => onSplitClick(index)}
-            disabled={busy}
-            title={busy ? '任务进行中，暂不可切分' : 'Split Audio'}
+            disabled={busy || readOnly}
+            title={busy ? '任务进行中，暂不可切分' : (readOnly ? '无写权限，暂不可切分' : 'Split Audio')}
           >
             切分
           </button>
           <button
             className={BTN_SM_DELETE}
             onClick={() => onDeleteClick?.(index)}
-            disabled={busy}
-            title={busy ? '任务进行中，暂不可删除' : '删除该条目的音频文件和 ASR 文本记录'}
+            disabled={busy || readOnly}
+            title={busy ? '任务进行中，暂不可删除' : (readOnly ? '无写权限，暂不可删除' : '删除该条目的音频文件和 ASR 文本记录')}
           >
             删除
           </button>

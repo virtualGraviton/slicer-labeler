@@ -15,6 +15,7 @@ type AudioHandler struct {
 	datasetStore *db.DatasetStore
 	modelStore   *db.ModelStore
 	storage      *service.StorageService
+	auth         *service.AuthService
 }
 
 func NewAudioHandler(
@@ -22,40 +23,47 @@ func NewAudioHandler(
 	datasetStore *db.DatasetStore,
 	modelStore *db.ModelStore,
 	storage *service.StorageService,
+	auth *service.AuthService,
 ) *AudioHandler {
 	return &AudioHandler{
 		entryStore:   entryStore,
 		datasetStore: datasetStore,
 		modelStore:   modelStore,
 		storage:      storage,
+		auth:         auth,
 	}
 }
 
 func (h *AudioHandler) GetAudio(c echo.Context) error {
+	ctx := c.Request().Context()
+	user, _ := c.Get("user").(*db.User)
 	id, err := strconv.ParseInt(c.Param("entryId"), 10, 64)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid entryId"})
 	}
 
-	entry, err := h.entryStore.GetByID(c.Request().Context(), id)
+	entry, err := h.entryStore.GetByID(ctx, id)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 	if entry == nil {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "entry not found"})
 	}
+	if !h.auth.CanReadDataset(ctx, user, entry.DatasetID) {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "entry not found"})
+	}
 
-	dataset, err := h.datasetStore.Get(c.Request().Context(), entry.DatasetID)
+	dataset, err := h.datasetStore.Get(ctx, entry.DatasetID)
 	if err != nil || dataset == nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "dataset not found"})
 	}
 
-	model, err := h.modelStore.Get(c.Request().Context(), dataset.ModelID)
+	model, err := h.modelStore.Get(ctx, dataset.ModelID)
 	if err != nil || model == nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "model not found"})
 	}
 
-	reader, err := h.storage.DownloadStream(c.Request().Context(), model.Name, dataset.Name, entry.WavPath)
+	reader, err := h.storage.DownloadStream(ctx, model.Name, dataset.Name, entry.WavPath)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to fetch audio: " + err.Error()})
 	}

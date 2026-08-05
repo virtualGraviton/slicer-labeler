@@ -38,13 +38,31 @@ func main() {
 	}
 	log.Println("Database migrations completed successfully")
 
+	if err := db.SeedRoles(gormDB); err != nil {
+		log.Fatalf("Failed to seed roles: %v", err)
+	}
+
+	// Security-critical configuration validation.
+	if cfg.JWTSecret == "" {
+		log.Fatal("JWT_SECRET environment variable is required")
+	}
+	if !cfg.DevMode && (cfg.GitHubClientID == "" || cfg.GitHubClientSecret == "" || cfg.GitHubCallbackURL == "") {
+		log.Fatal("GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET / GITHUB_CALLBACK_URL are required when DEV_MODE is off")
+	}
+
 	e := echo.New()
 	e.HideBanner = true
 
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
+	// DEV allows any origin (no cookies involved, bearer tokens only); production
+	// restricts CORS to the public frontend origin.
+	allowOrigins := []string{"*"}
+	if !cfg.DevMode && cfg.PublicURL != "" {
+		allowOrigins = []string{cfg.PublicURL}
+	}
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOrigins: []string{"*"},
+		AllowOrigins: allowOrigins,
 		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
 		AllowHeaders: []string{"Content-Type", "Authorization"},
 	}))

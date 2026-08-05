@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Inbox, Loader2 } from 'lucide-react';
-import { deleteEntry as deleteEntryApi, fetchEntries, updateEntry } from '../utils/api';
+import { deleteEntry as deleteEntryApi, fetchEntries, updateEntry, getDataset } from '../utils/api';
 import ItemRow from '../components/ItemRow';
 import SplitModal from '../components/SplitModal';
 import MergeModal from '../components/MergeModal';
@@ -87,6 +87,9 @@ export default function LabelPage() {
   const { isDatasetBusy } = useTasks();
   const datasetBusy = isDatasetBusy(datasetId);
 
+  const [dataset, setDataset] = useState(null);
+  const readOnly = dataset?.canWrite === false;
+
   const [entries, setEntries] = useState([]); // sparse cache: loaded pages filled, others undefined
   const [total, setTotal] = useState(0);
   const [currentPage, setCurrentPage] = useState(readStoredCurrentPage);
@@ -131,6 +134,15 @@ export default function LabelPage() {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Load the dataset to learn the user's write permission (read-only mode).
+  useEffect(() => {
+    let alive = true;
+    getDataset(datasetId)
+      .then((d) => { if (alive) setDataset(d); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [datasetId]);
 
   useEffect(() => {
     entriesRef.current = entries;
@@ -484,12 +496,13 @@ export default function LabelPage() {
 
   // Split
   const handleSplitClick = useCallback((globalIndex) => {
+    if (readOnly) return;
     if (!entriesRef.current[globalIndex]) return;
     if (autoPlayEnabledRef.current) {
       stopAutoPlayByUser('自动播放已暂停，正在切分条目');
     }
     setSplitTarget({ entry: entriesRef.current[globalIndex], globalIndex });
-  }, [stopAutoPlayByUser]);
+  }, [readOnly, stopAutoPlayByUser]);
 
   const handleSplitComplete = useCallback(async (globalIndex, first, second, newTotal) => {
     if (autoPlayEnabledRef.current) {
@@ -508,6 +521,7 @@ export default function LabelPage() {
 
   // Merge
   const handleMergeClick = useCallback(() => {
+    if (readOnly) return;
     if (checkedGlobalIndices.length < 2) {
       showToast('请至少选中 2 个条目进行合并', 'error');
       return;
@@ -523,7 +537,7 @@ export default function LabelPage() {
     }
     const entries = checkedGlobalIndices.map((i) => entriesRef.current[i]);
     setMergeTargets({ entries, globalIndices: checkedGlobalIndices });
-  }, [checkedGlobalIndices, showToast, stopAutoPlayByUser]);
+  }, [checkedGlobalIndices, readOnly, showToast, stopAutoPlayByUser]);
 
   const handleMergeComplete = useCallback(async (globalIndices, merged, newTotal) => {
     if (autoPlayEnabledRef.current) {
@@ -544,10 +558,11 @@ export default function LabelPage() {
 
   // Delete
   const handleDeleteClick = useCallback((globalIndex) => {
+    if (readOnly) return;
     const entry = entriesRef.current[globalIndex];
     if (!entry) return;
     setDeleteTarget({ entry, globalIndex });
-  }, []);
+  }, [readOnly]);
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteTarget?.entry || deleteLoading) return;
@@ -657,6 +672,7 @@ export default function LabelPage() {
           volume={volume}
           onVolumeChange={handleVolumeChange}
           busy={datasetBusy}
+          readOnly={readOnly}
         />
       </div>
 
@@ -668,6 +684,13 @@ export default function LabelPage() {
           flex items-center gap-2 text-xs text-teal-700 dark:text-teal-300">
           <Loader2 size={13} className="animate-spin" />
           数据集正在执行任务，写操作（编辑/切分/合并/删除）已锁定，任务完成后自动解锁
+        </div>
+      )}
+      {/* Read-only banner */}
+      {readOnly && (
+        <div className="mb-3 px-4 py-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800
+          flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300">
+          当前为只读模式（无该数据集的写权限），只能查看与播放
         </div>
       )}
       {/* Pagination top */}
@@ -756,6 +779,7 @@ export default function LabelPage() {
               countdownTotalSeconds={countdownIdx === globalIdx ? countdownTotalVal : null}
               volume={volume}
               busy={datasetBusy}
+              readOnly={readOnly}
             />
           );
         })}
