@@ -41,13 +41,13 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-teal-50/20 to-blue-50 dark:from-gray-950 dark:via-teal-950/20 dark:to-gray-900 flex items-center justify-center p-6">
       <div className="w-full max-w-sm">
         <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl p-8 shadow-2xl">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-teal-600 flex items-center justify-center">
-              <span className="text-white font-bold">SL</span>
-            </div>
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Slicer Labeler</h1>
-          </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-6">登录后访问标注工作台</p>
+          <img
+            src="/icon-1280-832.svg"
+            alt="Slicer Labeler"
+            className="w-56 mx-auto rounded-lg mb-4"
+          />
+          <h1 className="text-center text-lg font-semibold text-gray-900 dark:text-gray-100">Slicer Labeler</h1>
+          <p className="text-center text-xs text-gray-500 dark:text-gray-400 mb-6">登录后访问标注工作台</p>
 
           {error && (
             <div className="mb-4 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 text-xs">{error}</div>
