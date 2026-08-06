@@ -204,12 +204,18 @@ export async function polishMergeText({ entries, hardMergedText, speaker, langua
 
 // ─── Import / Archive ───
 
-// importDataset uploads a zip/tar.gz bundle via XHR so the browser reports
-// upload progress (0-100). Resolves to { jobId } once the server received it.
-export function importDataset(datasetId, file, onProgress) {
+// 64MB 分片：单分片远低于 Cloudflare 100MB 请求体上限，同时避开 nginx ingress 32m 限制
+const CHUNK_SIZE = 64 * 1024 * 1024;
+
+// 小于该值的文件走单次直传（省一次会话往返）；更大的走分片上传
+const DIRECT_UPLOAD_LIMIT = 32 * 1024 * 1024;
+
+// uploadOne uploads a single file via XHR so the browser reports upload
+// progress (0-100). Resolves to the parsed JSON response.
+function uploadOne(url, file, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${BASE}/api/datasets/${datasetId}/import`);
+    xhr.open('POST', `${BASE}${url}`);
     if (_token) xhr.setRequestHeader('Authorization', `Bearer ${_token}`);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
@@ -224,6 +230,42 @@ export function importDataset(datasetId, file, onProgress) {
     const form = new FormData();
     form.append('file', file);
     xhr.send(form);
+  });
+}
+
+// importDataset uploads a zip/tar.gz bundle. Small files go in one request;
+// larger files are sliced into CHUNK_SIZE pieces uploaded sequentially, then
+// reassembled by the backend (init -> chunk xN -> complete).
+export async function importDataset(datasetId, file, onProgress) {
+  if (file.size <= DIRECT_UPLOAD_LIMIT) {
+    return uploadOne(`/api/datasets/${datasetId}/import`, file, onProgress);
+  }
+
+  const chunkCount = Math.ceil(file.size / CHUNK_SIZE);
+  const init = await request(`/api/datasets/${datasetId}/import/init`, {
+    method: 'POST',
+    body: JSON.stringify({ filename: file.name, size: file.size, chunks: chunkCount }),
+  });
+  const uploadId = init.uploadId;
+
+  let uploaded = 0;
+  for (let i = 0; i < chunkCount; i++) {
+    const start = i * CHUNK_SIZE;
+    const end = Math.min(start + CHUNK_SIZE, file.size);
+    const chunk = file.slice(start, end);
+    await uploadOne(`/api/datasets/${datasetId}/import/chunk`, chunk, (p) => {
+      // 单分片进度折算到总体进度（保留当前分片起点）
+      const chunkTotal = end - start;
+      const chunkLoaded = Math.round((p / 100) * chunkTotal);
+      if (onProgress) onProgress(Math.round(((uploaded + chunkLoaded) / file.size) * 100));
+    });
+    uploaded += end - start;
+    if (onProgress) onProgress(Math.round((uploaded / file.size) * 100));
+  }
+
+  return request(`/api/datasets/${datasetId}/import/complete`, {
+    method: 'POST',
+    body: JSON.stringify({ uploadId }),
   });
 }
 
