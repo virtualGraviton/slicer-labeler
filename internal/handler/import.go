@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -82,15 +83,9 @@ func (h *ImportHandler) Import(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "missing file field"})
 	}
-	// filepath.Ext only returns the last suffix (.gz for .tar.gz), so check by name
-	ext := strings.ToLower(file.Filename)
-	switch {
-	case strings.HasSuffix(ext, ".zip"):
-		ext = ".zip"
-	case strings.HasSuffix(ext, ".tar.gz"), strings.HasSuffix(ext, ".tgz"):
-		ext = ".tar.gz"
-	default:
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "only .zip / .tar.gz bundles are supported"})
+	ext, err := bundleExt(file.Filename)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
 	modelName, datasetName, err := resolveNames(ctx, h.datasetStore, h.modelStore, datasetID)
@@ -137,6 +132,205 @@ func (h *ImportHandler) Import(c echo.Context) error {
 	log.Printf("[import] task=%s dataset=%d bundle=%s size=%d -> %s/%s", task.ID, datasetID, file.Filename, written, modelName, datasetName)
 	go h.runTask(task, datasetID, modelName, datasetName, tmp, ext)
 
+	return c.JSON(http.StatusOK, model.ImportResponse{JobID: task.ID})
+}
+
+// bundleExt returns the canonical archive extension for a bundle name.
+// filepath.Ext only returns the last suffix (.gz for .tar.gz), so check by name.
+func bundleExt(name string) (string, error) {
+	switch ext := strings.ToLower(name); {
+	case strings.HasSuffix(ext, ".zip"):
+		return ".zip", nil
+	case strings.HasSuffix(ext, ".tar.gz"), strings.HasSuffix(ext, ".tgz"):
+		return ".tar.gz", nil
+	}
+	return "", fmt.Errorf("only .zip / .tar.gz bundles are supported")
+}
+
+// --- Chunked upload ---
+
+// importMeta is persisted per upload session so chunks can be reassembled
+// even across requests.
+type importMeta struct {
+	Filename string `json:"filename"`
+	Size     int64  `json:"size"`
+	Chunks   int    `json:"chunks"`
+}
+
+const uploadSessionPrefix = "import-upload-"
+
+// InitUpload starts a chunked upload session: it validates the bundle name and
+// the caller's permission, then returns an uploadId to reference the session.
+func (h *ImportHandler) InitUpload(c echo.Context) error {
+	datasetID, err := strconv.ParseInt(c.Param("datasetId"), 10, 64)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid datasetId"})
+	}
+	ctx := c.Request().Context()
+	d, err := h.datasetStore.Get(ctx, datasetID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	if d == nil {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "dataset not found"})
+	}
+	user, _ := c.Get("user").(*db.User)
+	if !h.auth.CanWriteDataset(ctx, user, datasetID) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "无权限"})
+	}
+
+	var req importMeta
+	if err := c.Bind(&req); err != nil || req.Filename == "" || req.Chunks < 1 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "filename and chunks are required"})
+	}
+	if _, err := bundleExt(req.Filename); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+
+	if err := os.MkdirAll(h.tmpDir, 0o755); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	uploadID := fmt.Sprintf("%d-%s", time.Now().UnixNano(), randHex(4))
+	dir := filepath.Join(h.tmpDir, uploadSessionPrefix+uploadID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	metaJSON, _ := json.Marshal(req)
+	if err := os.WriteFile(filepath.Join(dir, "meta.json"), metaJSON, 0o644); err != nil {
+		os.RemoveAll(dir)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	log.Printf("[import] upload init uploadId=%s dataset=%d file=%s size=%d chunks=%d", uploadID, datasetID, req.Filename, req.Size, req.Chunks)
+	return c.JSON(http.StatusOK, map[string]string{"uploadId": uploadID})
+}
+
+// UploadChunk stores one chunk (index < meta.Chunks) into the session dir.
+func (h *ImportHandler) UploadChunk(c echo.Context) error {
+	datasetID, err := strconv.ParseInt(c.Param("datasetId"), 10, 64)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid datasetId"})
+	}
+	user, _ := c.Get("user").(*db.User)
+	if !h.auth.CanWriteDataset(c.Request().Context(), user, datasetID) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "无权限"})
+	}
+
+	uploadID := c.FormValue("uploadId")
+	indexStr := c.FormValue("index")
+	if uploadID == "" || indexStr == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "uploadId and index are required"})
+	}
+	index, err := strconv.Atoi(indexStr)
+	if err != nil || index < 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid chunk index"})
+	}
+	dir := filepath.Join(h.tmpDir, uploadSessionPrefix+uploadID)
+	if _, err := os.Stat(filepath.Join(dir, "meta.json")); err != nil {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "upload session not found"})
+	}
+
+	file, err := c.FormFile("file")
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "missing file field"})
+	}
+	src, err := file.Open()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	defer src.Close()
+	dst, err := os.Create(filepath.Join(dir, fmt.Sprintf("chunk-%05d", index)))
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	written, err := io.Copy(dst, src)
+	dst.Close()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to store chunk: " + err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]int{"index": index, "size": int(written)})
+}
+
+// CompleteUpload reassembles all chunks, then starts the standard import task.
+func (h *ImportHandler) CompleteUpload(c echo.Context) error {
+	datasetID, err := strconv.ParseInt(c.Param("datasetId"), 10, 64)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid datasetId"})
+	}
+	ctx := c.Request().Context()
+	d, err := h.datasetStore.Get(ctx, datasetID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	if d == nil {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "dataset not found"})
+	}
+	user, _ := c.Get("user").(*db.User)
+	if !h.auth.CanWriteDataset(ctx, user, datasetID) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "无权限"})
+	}
+
+	var req struct {
+		UploadID string `json:"uploadId"`
+	}
+	if err := c.Bind(&req); err != nil || req.UploadID == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "uploadId is required"})
+	}
+	dir := filepath.Join(h.tmpDir, uploadSessionPrefix+req.UploadID)
+	metaRaw, err := os.ReadFile(filepath.Join(dir, "meta.json"))
+	if err != nil {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "upload session not found"})
+	}
+	var meta importMeta
+	if err := json.Unmarshal(metaRaw, &meta); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "corrupt upload session"})
+	}
+	ext, err := bundleExt(meta.Filename)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+
+	// Ensure every chunk arrived before merging.
+	for i := 0; i < meta.Chunks; i++ {
+		if _, err := os.Stat(filepath.Join(dir, fmt.Sprintf("chunk-%05d", i))); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("missing chunk %d", i)})
+		}
+	}
+
+	bundlePath := filepath.Join(dir, "bundle"+ext)
+	out, err := os.Create(bundlePath)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	var total int64
+	for i := 0; i < meta.Chunks; i++ {
+		chunk, err := os.Open(filepath.Join(dir, fmt.Sprintf("chunk-%05d", i)))
+		if err != nil {
+			out.Close()
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		n, err := io.Copy(out, chunk)
+		chunk.Close()
+		if err != nil {
+			out.Close()
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		total += n
+	}
+	out.Close()
+	if meta.Size > 0 && total != meta.Size {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("bundle size mismatch: got %d, want %d", total, meta.Size)})
+	}
+
+	modelName, datasetName, err := resolveNames(ctx, h.datasetStore, h.modelStore, datasetID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	task, err := h.tm.TryLock(datasetID, d.ModelID, modelName, datasetName, model.TaskTypeImport)
+	if err != nil {
+		return c.JSON(http.StatusConflict, map[string]string{"error": fmt.Sprintf("数据集「%s」正在执行任务，请稍后再试", datasetName)})
+	}
+	log.Printf("[import] upload complete uploadId=%s task=%s bundle=%s size=%d", req.UploadID, task.ID, bundlePath, total)
+	go h.runTask(task, datasetID, modelName, datasetName, dir, ext)
 	return c.JSON(http.StatusOK, model.ImportResponse{JobID: task.ID})
 }
 

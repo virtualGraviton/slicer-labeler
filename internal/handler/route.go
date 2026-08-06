@@ -112,6 +112,9 @@ func RegisterRoutes(e *echo.Echo, gormDB *gorm.DB, cfg *config.Config) {
 
 	// Import / Archive (async tasks)
 	sec.POST("/datasets/:datasetId/import", importH.Import)
+	sec.POST("/datasets/:datasetId/import/init", importH.InitUpload)
+	sec.POST("/datasets/:datasetId/import/chunk", importH.UploadChunk)
+	sec.POST("/datasets/:datasetId/import/complete", importH.CompleteUpload)
 	sec.POST("/datasets/:datasetId/archive", archiveH.Archive)
 
 	// Tasks
