@@ -211,8 +211,9 @@ const CHUNK_SIZE = 64 * 1024 * 1024;
 const DIRECT_UPLOAD_LIMIT = 32 * 1024 * 1024;
 
 // uploadOne uploads a single file via XHR so the browser reports upload
-// progress (0-100). Resolves to the parsed JSON response.
-function uploadOne(url, file, onProgress) {
+// progress (0-100). extraFields are appended to the multipart form body.
+// Resolves to the parsed JSON response.
+function uploadOne(url, file, onProgress, extraFields = {}) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${BASE}${url}`);
@@ -229,6 +230,9 @@ function uploadOne(url, file, onProgress) {
     xhr.onerror = () => reject(new Error('网络错误，上传失败'));
     const form = new FormData();
     form.append('file', file);
+    for (const [key, value] of Object.entries(extraFields)) {
+      form.append(key, value);
+    }
     xhr.send(form);
   });
 }
@@ -258,7 +262,7 @@ export async function importDataset(datasetId, file, onProgress) {
       const chunkTotal = end - start;
       const chunkLoaded = Math.round((p / 100) * chunkTotal);
       if (onProgress) onProgress(Math.round(((uploaded + chunkLoaded) / file.size) * 100));
-    });
+    }, { uploadId, index: String(i) });
     uploaded += end - start;
     if (onProgress) onProgress(Math.round((uploaded / file.size) * 100));
   }
