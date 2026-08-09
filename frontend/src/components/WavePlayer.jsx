@@ -8,6 +8,8 @@ import { formatTime } from '../utils/fileNaming';
 export default function WavePlayer({
   audioUrl,
   audioBuffer,
+  loadState = 'lazy',
+  onRequestLoad,
   onEnded,
   onPlayStateChange,
   onPlay,
@@ -26,9 +28,23 @@ export default function WavePlayer({
   const waveformDataRef = useRef(null);
   const lastNonceRef = useRef(0);
   const lastStopNonceRef = useRef(0);
+  const pendingPlayRef = useRef(false); // 懒加载完成后自动播放（手动播放/自动播放触发的加载）
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [displayTime, setDisplayTime] = useState(0);
+  const audioLoaded = !!audioUrl;
+
+  // ---- 懒加载完成（audioUrl 就绪）后自动播放 ----
+  useEffect(() => {
+    if (audioLoaded && pendingPlayRef.current) {
+      pendingPlayRef.current = false;
+      const audio = audioRef.current;
+      if (audio) {
+        audio.currentTime = 0;
+        audio.play().catch(() => {});
+      }
+    }
+  }, [audioLoaded]);
 
   // ---- Apply global volume ----
   useEffect(() => {
@@ -75,6 +91,12 @@ export default function WavePlayer({
     const nonce = playSignal?.nonce ?? 0;
     if (playSignal?.targetIdx !== index) return;
     if (nonce > 0 && nonce !== lastNonceRef.current) {
+      if (!audioLoaded) {
+        // 音频尚未懒加载：请求加载，且不消费 nonce，加载完成后由 audioUrl effect 播放
+        pendingPlayRef.current = true;
+        onRequestLoad?.();
+        return;
+      }
       lastNonceRef.current = nonce;
       const audio = audioRef.current;
       if (audio) {
@@ -82,7 +104,14 @@ export default function WavePlayer({
         audio.play().catch(() => {});
       }
     }
-  }, [playSignal, index]);
+  }, [playSignal, index, audioLoaded, onRequestLoad]);
+
+  // ---- 自动播放倒计时阶段预加载（减小跨页连播的等待） ----
+  useEffect(() => {
+    if (countdownActive && !audioLoaded) {
+      onRequestLoad?.();
+    }
+  }, [countdownActive, audioLoaded, onRequestLoad]);
 
   // ---- Resize observer ----
   useEffect(() => {
@@ -201,6 +230,11 @@ export default function WavePlayer({
 
   // ---- Click to seek ----
   const handleWaveformClick = useCallback((e) => {
+    if (!audioLoaded) {
+      // 未加载：点击波形触发懒加载（不自动播放）
+      onRequestLoad?.();
+      return;
+    }
     const canvas = canvasRef.current;
     const audio = audioRef.current;
     const d = waveformDataRef.current;
@@ -213,18 +247,24 @@ export default function WavePlayer({
     setDisplayTime(seekTime);
     const ctx = canvas.getContext('2d');
     redrawWaveform(ctx, canvas.clientWidth, 52, d.ampArr, d.maxAmp, progress);
-  }, [redrawWaveform]);
+  }, [audioLoaded, onRequestLoad, redrawWaveform]);
 
   // ---- Play/Pause ----
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
+    if (!audioLoaded) {
+      // 未加载：请求加载并在完成后自动播放
+      pendingPlayRef.current = true;
+      onRequestLoad?.();
+      return;
+    }
     if (playing) {
       audio.pause();
     } else {
       audio.play().catch(() => {});
     }
-  }, [playing]);
+  }, [audioLoaded, onRequestLoad, playing]);
 
   const handleEnded = useCallback(() => {
     setPlaying(false);
@@ -257,6 +297,26 @@ export default function WavePlayer({
         </button>
         <div className="flex-1 h-[52px] rounded-lg bg-[color:var(--waveform-bg)] overflow-hidden cursor-pointer relative transition-shadow hover:shadow-[0_0_0_2px_var(--accent-glow)] self-center" ref={containerRef} onClick={handleWaveformClick}>
           <canvas ref={canvasRef} className="block w-full h-full" />
+          {!audioLoaded && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              {loadState === 'loading' ? (
+                <span className="text-[12px] text-[color:var(--text-secondary)] animate-pulse">加载中…</span>
+              ) : (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 px-3 py-1 text-[12px] rounded-md font-medium text-[color:var(--accent)] bg-[rgba(20,184,166,0.1)] border border-[rgba(15,118,110,0.4)] hover:bg-[rgba(20,184,166,0.18)] transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    pendingPlayRef.current = false;
+                    onRequestLoad?.();
+                  }}
+                  title="加载音频波形"
+                >
+                  {loadState === 'error' ? '加载失败，点击重试' : '▶ 点击加载'}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
       <div className="text-[11px] text-[color:var(--text-secondary)] text-center tabular-nums">
@@ -265,7 +325,7 @@ export default function WavePlayer({
       <audio
         ref={audioRef}
         src={audioUrl}
-        preload="auto"
+        preload="none"
         onPlay={() => { setPlaying(true); onPlayStateChange?.(true); onPlay?.(); startRAF(); }}
         onPause={() => { setPlaying(false); onPlayStateChange?.(false); stopRAF(); }}
         onEnded={handleEnded}
