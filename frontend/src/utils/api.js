@@ -170,6 +170,13 @@ export async function deleteEntry(entryId) {
   return request(`/api/entries/${entryId}`, { method: 'DELETE' });
 }
 
+export async function setEntriesVerified(datasetId, entryIds, verified) {
+  return request(`/api/datasets/${datasetId}/entries/verified`, {
+    method: 'POST',
+    body: JSON.stringify({ entryIds, verified }),
+  });
+}
+
 // ─── Audio ───
 
 export function getAudioUrl(entryId) {

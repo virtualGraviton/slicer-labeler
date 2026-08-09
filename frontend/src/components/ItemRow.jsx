@@ -32,6 +32,8 @@ export default function ItemRow({
   volume,
   busy = false,
   readOnly = false,
+  verified = false,
+  onSetVerified,
 }) {
   const [audioBuffer, setAudioBuffer] = useState(null);
   const [audioUrl, setAudioUrl] = useState('');
@@ -82,8 +84,13 @@ export default function ItemRow({
       </div>
 
       <div className="flex-1 min-w-0 flex flex-col gap-2">
-        <div className="text-[11px] text-[color:var(--text-secondary)] font-medium uppercase tracking-[1px]">
-          #{index + 1} &middot; {entry.speaker} &middot; {entry.language}
+        <div className="text-[11px] text-[color:var(--text-secondary)] font-medium uppercase tracking-[1px] flex items-center gap-2">
+          <span>#{index + 1} &middot; {entry.speaker} &middot; {entry.language}</span>
+          <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${verified
+            ? 'bg-teal-100 text-teal-600 dark:bg-teal-900/40 dark:text-teal-300'
+            : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'}`}>
+            {verified ? '已完成' : '未完成'}
+          </span>
         </div>
         <textarea
           className={TEXTAREA}
@@ -127,6 +134,14 @@ export default function ItemRow({
         />
 
         <div className="flex flex-wrap gap-2 justify-end items-center pl-10 relative w-full min-w-0 max-[860px]:justify-start">
+          <button
+            className={BTN_SM_AUTO}
+            onClick={() => onSetVerified?.(index, !verified)}
+            disabled={busy || readOnly}
+            title={busy ? '任务进行中，暂不可标记' : (readOnly ? '无写权限，暂不可标记' : (verified ? '标记为未完成' : '标记为已完成'))}
+          >
+            {verified ? '取消完成' : '标记完成'}
+          </button>
           <button
             className={BTN_SM_AUTO}
             onClick={() => onAutoPlayFrom?.(index)}

@@ -42,7 +42,7 @@ func RegisterRoutes(e *echo.Echo, gormDB *gorm.DB, cfg *config.Config) {
 	roleH := NewRoleHandler(roleStore, userStore, authSvc)
 	grantH := NewGrantHandler(grantStore, authSvc)
 	modelH := NewModelHandler(modelStore, datasetStore, tm, authSvc)
-	datasetH := NewDatasetHandler(datasetStore, tm, authSvc)
+	datasetH := NewDatasetHandler(datasetStore, entryStore, tm, authSvc)
 	entryH := NewEntryHandler(entryStore, datasetStore, tm, authSvc)
 	audioH := NewAudioHandler(entryStore, datasetStore, modelStore, storageSvc, authSvc)
 	splitH := NewSplitHandler(entryStore, datasetStore, modelStore, audioSvc, tm, authSvc)
@@ -97,6 +97,7 @@ func RegisterRoutes(e *echo.Echo, gormDB *gorm.DB, cfg *config.Config) {
 	// Entries
 	sec.GET("/datasets/:datasetId/entries", entryH.List)
 	sec.POST("/datasets/:datasetId/entries", entryH.BatchUpsert)
+	sec.POST("/datasets/:datasetId/entries/verified", entryH.SetVerified)
 	sec.PUT("/entries/:entryId", entryH.Update)
 	sec.DELETE("/entries/:entryId", entryH.Delete)
 

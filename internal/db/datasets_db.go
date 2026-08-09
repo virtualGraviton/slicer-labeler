@@ -24,6 +24,10 @@ type Dataset struct {
 	CanWrite  bool `json:"canWrite" gorm:"-"`
 	CanDelete bool `json:"canDelete" gorm:"-"`
 	CanManage bool `json:"canManage" gorm:"-"`
+
+	// Computed fields (not persisted): annotation progress.
+	EntryCount    int64 `json:"entryCount" gorm:"-"`
+	VerifiedCount int64 `json:"verifiedCount" gorm:"-"`
 }
 
 func (Dataset) TableName() string { return "datasets" }

@@ -12,13 +12,14 @@ import (
 )
 
 type DatasetHandler struct {
-	store *db.DatasetStore
-	tm    *TaskManager
-	auth  *service.AuthService
+	store      *db.DatasetStore
+	entryStore *db.EntryStore
+	tm         *TaskManager
+	auth       *service.AuthService
 }
 
-func NewDatasetHandler(store *db.DatasetStore, tm *TaskManager, auth *service.AuthService) *DatasetHandler {
-	return &DatasetHandler{store: store, tm: tm, auth: auth}
+func NewDatasetHandler(store *db.DatasetStore, entryStore *db.EntryStore, tm *TaskManager, auth *service.AuthService) *DatasetHandler {
+	return &DatasetHandler{store: store, entryStore: entryStore, tm: tm, auth: auth}
 }
 
 func (h *DatasetHandler) List(c echo.Context) error {
@@ -59,6 +60,12 @@ func (h *DatasetHandler) List(c echo.Context) error {
 		d.CanWrite = h.auth.CanWriteDataset(ctx, user, d.ID)
 		d.CanDelete = h.auth.CanDeleteDataset(ctx, user, d.ID)
 		d.CanManage = h.auth.CanManageDataset(ctx, user, d.ID)
+		total, verified, err := h.entryStore.StatsByDataset(ctx, d.ID)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		d.EntryCount = total
+		d.VerifiedCount = verified
 	}
 	if out == nil {
 		out = []db.Dataset{}
@@ -84,6 +91,12 @@ func (h *DatasetHandler) Get(c echo.Context) error {
 	d.CanWrite = h.auth.CanWriteDataset(ctx, user, id)
 	d.CanDelete = h.auth.CanDeleteDataset(ctx, user, id)
 	d.CanManage = h.auth.CanManageDataset(ctx, user, id)
+	total, verified, err := h.entryStore.StatsByDataset(ctx, id)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	d.EntryCount = total
+	d.VerifiedCount = verified
 	return c.JSON(http.StatusOK, d)
 }
 

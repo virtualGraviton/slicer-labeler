@@ -49,6 +49,12 @@ type UpdateEntryRequest struct {
 	Text string `json:"text"`
 }
 
+// SetVerifiedRequest is the body for POST /api/datasets/:datasetId/entries/verified.
+type SetVerifiedRequest struct {
+	EntryIDs []int64 `json:"entryIds"`
+	Verified bool    `json:"verified"`
+}
+
 // --- Split Request/Response ---
 
 // SplitRequest is the body for POST /api/entries/:entryId/split.

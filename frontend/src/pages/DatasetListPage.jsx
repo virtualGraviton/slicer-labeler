@@ -147,6 +147,14 @@ export default function DatasetListPage() {
                         <Loader2 size={9} className="animate-spin" />任务处理中
                       </span>
                     )}
+                    {ds.entryCount > 0 && (
+                      <span
+                        title={`已完成 ${ds.verifiedCount}/${ds.entryCount} 条`}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/50 text-teal-700 dark:text-teal-300 text-[10px] font-medium"
+                      >
+                        标注 {Math.round((ds.verifiedCount / ds.entryCount) * 100)}%
+                      </span>
+                    )}
                   </h3>
                   {ds.description && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">{ds.description}</p>}
                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 flex items-center gap-1"><Clock size={11} />{new Date(ds.created_at).toLocaleDateString('zh-CN')}</p>

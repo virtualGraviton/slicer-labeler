@@ -1,6 +1,6 @@
-import { useRef, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Square, Settings, GitMerge, Volume2, ArrowLeft } from 'lucide-react';
+import { Play, Square, Settings, GitMerge, Volume2, ArrowLeft, Check, X, Minus, CheckCheck } from 'lucide-react';
 
 export default function LabelSidebar({
   autoPlayOn,
@@ -9,11 +9,17 @@ export default function LabelSidebar({
   onBack,
   checkedCount,
   onMergeClick,
+  selectAllState = 'none',
+  onSelectAll,
+  hasEntries = false,
+  onSetVerified,
+  setVerifiedBusy = false,
   volume,
   onVolumeChange,
   busy = false,
   readOnly = false,
 }) {
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const trackRef = useRef(null);
   const pct = Math.round(volume * 100);
 
@@ -97,6 +103,60 @@ export default function LabelSidebar({
         <GitMerge size={14} />
         合并 ({checkedCount})
       </button>
+
+      {/* 全选 / 取消全选本页 */}
+      <button
+        onClick={onSelectAll}
+        disabled={busy || readOnly || !hasEntries}
+        title={busy ? '任务进行中，暂不可全选' : (readOnly ? '无写权限，暂不可全选' : undefined)}
+        className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg
+          text-gray-700 bg-gray-50 hover:bg-gray-100
+          dark:text-gray-300 dark:bg-gray-800/60 dark:hover:bg-gray-800
+          disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+      >
+        {selectAllState === 'all' ? <X size={14} /> : (selectAllState === 'partial' ? <Minus size={14} /> : <Check size={14} />)}
+        {selectAllState === 'all' ? '取消选择' : '全选本页'}
+      </button>
+
+      {/* 设置标注状态 */}
+      <div className="relative">
+        <button
+          onClick={() => setStatusMenuOpen((v) => !v)}
+          disabled={busy || readOnly || checkedCount === 0 || setVerifiedBusy}
+          title={busy ? '任务进行中，暂不可标记' : (readOnly ? '无写权限，暂不可标记' : (checkedCount === 0 ? '请先勾选条目' : undefined))}
+          className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg
+            text-teal-700 bg-teal-50 hover:bg-teal-100
+            dark:text-teal-300 dark:bg-teal-900/30 dark:hover:bg-teal-900/50
+            disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        >
+          <CheckCheck size={14} />
+          设置标注状态 ({checkedCount})
+        </button>
+        {statusMenuOpen && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setStatusMenuOpen(false)} />
+            <div className="absolute left-0 right-0 top-full mt-1 z-20 rounded-lg border border-gray-200 dark:border-gray-700
+              bg-white dark:bg-gray-900 shadow-lg p-1">
+              <button
+                onClick={() => { onSetVerified?.(true); setStatusMenuOpen(false); }}
+                className="flex items-center gap-2 w-full px-3 py-2 text-xs font-medium rounded-md
+                  text-teal-700 hover:bg-teal-50 dark:text-teal-300 dark:hover:bg-teal-900/40 transition-colors"
+              >
+                <Check size={14} />
+                标记已完成
+              </button>
+              <button
+                onClick={() => { onSetVerified?.(false); setStatusMenuOpen(false); }}
+                className="flex items-center gap-2 w-full px-3 py-2 text-xs font-medium rounded-md
+                  text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors"
+              >
+                <X size={14} />
+                标记未完成
+              </button>
+            </div>
+          </>
+        )}
+      </div>
 
       {/* 音量 */}
       <div className="pt-3 border-t border-gray-100 dark:border-gray-800">
