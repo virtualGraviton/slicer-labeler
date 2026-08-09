@@ -88,7 +88,7 @@ const TOAST_BG = {
 export default function LabelPage() {
   const { datasetId: datasetIdParam } = useParams();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const datasetId = parseInt(datasetIdParam, 10);
   const { isDatasetBusy } = useTasks();
   const datasetBusy = isDatasetBusy(datasetId);
@@ -140,6 +140,7 @@ export default function LabelPage() {
   const loadedPagesRef = useRef(new Set());
   const dirtyPathsRef = useRef(new Set());
   const saveTimerRef = useRef(null);
+  const lastSyncedPageRef = useRef(null); // 已写回 URL 的页码（1-based），避免重复写
 
   // Load data
   useEffect(() => {
@@ -244,6 +245,22 @@ export default function LabelPage() {
     setCurrentPage(urlPage - 1);
     setCheckedIndices({});
   }, [searchParams]);
+
+  // 翻页时同步写回 URL ?page=（1-based），刷新后停留在当前页。
+  // replace 避免历史栈膨胀；值与 URL 一致时不重复写，防止与上方 URL effect 形成循环。
+  useEffect(() => {
+    const page = currentPage + 1;
+    if (lastSyncedPageRef.current === page) return;
+    const urlPage = parseInt(searchParams.get('page'), 10);
+    if (Number.isFinite(urlPage) && urlPage === page) {
+      lastSyncedPageRef.current = page;
+      return;
+    }
+    lastSyncedPageRef.current = page;
+    const next = new URLSearchParams(searchParams);
+    next.set('page', String(page));
+    setSearchParams(next, { replace: true });
+  }, [currentPage, searchParams, setSearchParams]);
 
   // 页码恢复/跳转后补加载对应页数据
   useEffect(() => {
