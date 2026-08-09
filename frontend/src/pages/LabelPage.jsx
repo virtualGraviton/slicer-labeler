@@ -220,11 +220,29 @@ export default function LabelPage() {
     }
   };
 
+  // 数据就绪后 clamp 页码；total 仍为初始 0（未加载）时跳过，
+  // 避免把 URL ?page=N 或本地记录恢复的页码提前压回第 1 页
   useEffect(() => {
+    if (total === 0) return;
     setCurrentPage((page) => Math.min(Math.max(page, 0), totalPages - 1));
   }, [total, totalPages]);
 
-  // URL ?page=N 或本地记录恢复的页码：数据就绪后补加载对应页
+  // URL ?page=N 变化时跟随跳转（首次挂载也生效，URL 优先于本地记录）。
+  // 用 ref 记住已处理的页码，避免 totalPages 更新时重复覆盖用户翻页结果
+  const lastUrlPageRef = useRef(null);
+  useEffect(() => {
+    const urlPage = parseInt(searchParams.get('page'), 10);
+    if (!Number.isFinite(urlPage) || urlPage < 1) {
+      lastUrlPageRef.current = null;
+      return;
+    }
+    if (lastUrlPageRef.current === urlPage) return;
+    lastUrlPageRef.current = urlPage;
+    setCurrentPage(urlPage - 1);
+    setCheckedIndices({});
+  }, [searchParams]);
+
+  // 页码恢复/跳转后补加载对应页数据
   useEffect(() => {
     if (total > 0 && !loadedPagesRef.current.has(currentPage)) {
       ensurePageLoaded(currentPage);
