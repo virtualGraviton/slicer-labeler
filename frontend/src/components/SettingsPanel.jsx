@@ -35,6 +35,32 @@ export default function SettingsPanel({ settings, onChange, onClose }) {
           <span className="text-[11px] text-[color:var(--text-secondary)] opacity-70">翻到下一页前的额外等待时间</span>
         </div>
 
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <label className="text-xs text-[color:var(--text-secondary)] uppercase tracking-[0.5px]">自动标记</label>
+            <span className="text-[11px] text-[color:var(--text-secondary)] opacity-70">
+              自动播放跨页时，将刚播完的该页所有条目标记为已完成
+            </span>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={settings.autoMark}
+            onClick={() => onChange({ ...settings, autoMark: !settings.autoMark })}
+            className={`w-10 h-5 shrink-0 rounded-full p-0.5 transition-colors duration-200 ${
+              settings.autoMark
+                ? 'bg-[color:var(--accent)]'
+                : 'bg-gray-300 dark:bg-gray-600'
+            }`}
+          >
+            <span
+              className={`block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${
+                settings.autoMark ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
+
         <button className={BTN_SM} onClick={onClose} style={{ marginTop: 'auto', alignSelf: 'flex-start' }}>
           关闭设置
         </button>

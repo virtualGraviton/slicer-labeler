@@ -15,6 +15,7 @@ const PAGE_SIZE = 10;
 const DEFAULT_SETTINGS = {
   gapSeconds: 2,
   pageGapSeconds: 4,
+  autoMark: false,
 };
 
 const PREFERENCES_STORAGE_KEY = 'slicer-labeler.preferences';
@@ -62,6 +63,7 @@ function readStoredSettings() {
   return {
     gapSeconds: clampNumber(settings.gapSeconds, DEFAULT_SETTINGS.gapSeconds, 0.5, 30),
     pageGapSeconds: clampNumber(settings.pageGapSeconds, DEFAULT_SETTINGS.pageGapSeconds, 1, 30),
+    autoMark: settings.autoMark === true,
   };
 }
 
@@ -361,6 +363,29 @@ export default function LabelPage() {
     }
   }, [datasetId, showToast]);
 
+  // 将某页所有条目标记为已标注（自动标记：自动播放跨页时触发）
+  const markPageVerified = useCallback(async (page, verified) => {
+    const ids = [];
+    const indices = [];
+    const current = entriesRef.current;
+    for (let i = 0; i < PAGE_SIZE; i++) {
+      const g = page * PAGE_SIZE + i;
+      const entry = current[g];
+      if (entry?.id && entry.verified !== verified) {
+        ids.push(entry.id);
+        indices.push(g);
+      }
+    }
+    if (ids.length === 0) return;
+    await setEntriesVerified(datasetId, ids, verified);
+    const next = current.slice();
+    indices.forEach((g) => {
+      if (next[g]) next[g] = { ...next[g], verified };
+    });
+    entriesRef.current = next;
+    setEntries(next);
+  }, [datasetId]);
+
   const highlightItems = useCallback((indices, durationMs = 1400) => {
     if (highlightTimerRef.current) {
       clearTimeout(highlightTimerRef.current);
@@ -542,11 +567,26 @@ export default function LabelPage() {
   scheduleNextRef.current = scheduleNext;
 
   // Called when an item's audio ends → advance to the next item
-  const handleAudioEnded = useCallback((globalIndex) => {
+  const handleAudioEnded = useCallback(async (globalIndex) => {
     if (!autoPlayEnabledRef.current) return;
     const nextIdx = globalIndex + 1;
+
+    // 自动标记：播放完一页最后一条、即将翻页时，将该页全部条目标记为已完成
+    if (settingsRef.current.autoMark && !readOnly) {
+      const finishedPage = Math.floor(globalIndex / PAGE_SIZE);
+      const targetPage = Math.floor(nextIdx / PAGE_SIZE);
+      if (finishedPage !== targetPage) {
+        try {
+          await markPageVerified(finishedPage, true);
+        } catch (err) {
+          showToast('自动标记失败: ' + err.message, 'error');
+        }
+        if (!autoPlayEnabledRef.current) return;
+      }
+    }
+
     scheduleNext(nextIdx, getGapAfterIndex(globalIndex));
-  }, [getGapAfterIndex, scheduleNext]);
+  }, [getGapAfterIndex, markPageVerified, readOnly, scheduleNext, showToast]);
 
   // Toggle auto-play
   const startAutoPlayFrom = useCallback((globalIndex, gapSec = 0.5) => {
