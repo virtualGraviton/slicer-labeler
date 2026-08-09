@@ -553,11 +553,16 @@ export default function LabelPage() {
     }
 
     // Ensure the target page is loaded before reading the entry (cross-page auto-play).
-    if (!entriesRef.current[nextGlobalIdx]) {
-      await ensurePageLoaded(Math.floor(nextGlobalIdx / PAGE_SIZE));
+    let nextEntry = entriesRef.current[nextGlobalIdx];
+    if (!nextEntry) {
+      const page = Math.floor(nextGlobalIdx / PAGE_SIZE);
+      const data = await ensurePageLoaded(page);
       if (!autoPlayEnabledRef.current) return;
+      // 用接口返回值直接定位目标条目，避免依赖 entriesRef 在 React 渲染调度中的更新时序。
+      // 跨页 + 并发请求（如自动标记）时 ref 可能尚未更新，直接读会误判"条目不存在 → 自动播放已完成"。
+      const inPageIdx = nextGlobalIdx % PAGE_SIZE;
+      nextEntry = (data?.data && data.data[inPageIdx]) || entriesRef.current[nextGlobalIdx];
     }
-    const nextEntry = entriesRef.current[nextGlobalIdx];
     if (!nextEntry) {
       setAutoPlayOn(false);
       autoPlayEnabledRef.current = false;
