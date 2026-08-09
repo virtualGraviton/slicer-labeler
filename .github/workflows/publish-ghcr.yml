@@ -1,20 +1,33 @@
-name: Publish GHCR image
+name: Publish GHCR image & deploy
 
 on:
   push:
     branches:
       - main
+    # 只响应后端相关路径：前端(frontend/**)改动走 Cloudflare Pages，不触发后端镜像构建/部署
     paths:
-      - "**"
+      - "Dockerfile"
+      - "main.go"
+      - "go.mod"
+      - "go.sum"
+      - "internal/**"
       - ".github/workflows/publish-ghcr.yml"
+      - ".github/scripts/update-sealos-app.sh"
   workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "回滚用镜像 tag（留空 = 构建最新代码并发布）"
+        required: false
+        default: ""
 
 env:
   REGISTRY: ghcr.io
+  APP_NAME: slicer-labeler-backend
+  SEALOS_API_URL: "${{ vars.SEALOS_API_URL || 'https://applaunchpad.bja.sealos.run/api/v2alpha/apps' }}"
 
 jobs:
-  build-and-push:
-    name: Build and push backend image
+  build-and-deploy:
+    name: Build, push and deploy to Sealos
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -24,12 +37,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Set image name
+      - name: Resolve image
         id: image
         shell: bash
-        run: echo "name=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+        run: |
+          IMG_BASE="${{ env.REGISTRY }}/${{ github.repository }}"
+          IMG_BASE="${IMG_BASE,,}"
+          echo "base=${IMG_BASE}" >> "$GITHUB_OUTPUT"
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            echo "mode=rollback" >> "$GITHUB_OUTPUT"
+            echo "full=${IMG_BASE}:${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=build" >> "$GITHUB_OUTPUT"
+            echo "full=${IMG_BASE}:sha-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up Docker Buildx
+        if: steps.image.outputs.mode == 'build'
         uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
@@ -40,16 +64,17 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract image metadata
+        if: steps.image.outputs.mode == 'build'
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ steps.image.outputs.name }}
+          images: ${{ steps.image.outputs.base }}
           tags: |
-            type=ref,event=branch
             type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
+        if: steps.image.outputs.mode == 'build'
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -57,16 +82,28 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Update Sealos app (v2alpha API)
+        shell: bash
+        env:
+          SEALOS_API_URL: ${{ env.SEALOS_API_URL }}
+          APP_NAME: ${{ env.APP_NAME }}
+          FULL_IMAGE: ${{ steps.image.outputs.full }}
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+        run: bash .github/scripts/update-sealos-app.sh
 
       - name: Write deployment summary
         shell: bash
         run: |
           {
-            echo "### Published image tags"
-            echo '```text'
-            echo "${{ steps.meta.outputs.tags }}"
-            echo '```'
+            echo "### Deploy summary"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "|---|---|"
+            echo "| 模式 | ${{ steps.image.outputs.mode == 'rollback' && '回滚' || '发布' }} |"
+            echo "| 镜像 | \`${{ steps.image.outputs.full }}\` |"
+            echo "| Sealos 应用 | \`${{ env.APP_NAME }}\` |"
+            echo "| API | ${{ env.SEALOS_API_URL }} |"
           } >> "$GITHUB_STEP_SUMMARY"
