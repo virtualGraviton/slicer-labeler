@@ -21,6 +21,7 @@ type Entry struct {
 	Text      string                 `json:"text" gorm:"type:text;not null;default:''"`
 	MetaData  map[string]interface{} `json:"metaData" gorm:"type:jsonb;not null;default:'{}';serializer:json"`
 	Deleted   bool                   `json:"deleted" gorm:"not null;default:false"`
+	Verified  bool                   `json:"verified" gorm:"not null;default:false"`
 	SortOrder float64                `json:"sortOrder" gorm:"not null;default:0"`
 	CreatedAt time.Time              `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt time.Time              `json:"updated_at" gorm:"autoUpdateTime"`
@@ -229,6 +230,31 @@ func (s *EntryStore) MergeReplace(ctx context.Context, datasetID int64, sourceID
 		return nil, err
 	}
 	return out, nil
+}
+
+// SetVerified batch-updates the verified flag of the given entries and returns the
+// number of affected rows. Only active (deleted=false) entries are updated.
+func (s *EntryStore) SetVerified(ctx context.Context, datasetID int64, entryIDs []int64, verified bool) (int64, error) {
+	result := s.db.WithContext(ctx).Model(&Entry{}).
+		Where("dataset_id = ? AND deleted = ? AND id IN ?", datasetID, false, entryIDs).
+		Update("verified", verified)
+	if result.Error != nil {
+		return 0, fmt.Errorf("set verified: %w", result.Error)
+	}
+	return result.RowsAffected, nil
+}
+
+// StatsByDataset returns the number of active entries and how many of them are
+// verified for the given dataset.
+func (s *EntryStore) StatsByDataset(ctx context.Context, datasetID int64) (total, verified int64, err error) {
+	err = s.db.WithContext(ctx).Model(&Entry{}).
+		Where("dataset_id = ? AND deleted = ?", datasetID, false).
+		Select("COUNT(*) AS total, COUNT(*) FILTER (WHERE verified) AS verified").
+		Row().Scan(&total, &verified)
+	if err != nil {
+		return 0, 0, fmt.Errorf("stats by dataset %d: %w", datasetID, err)
+	}
+	return total, verified, nil
 }
 
 func (s *EntryStore) CountByDataset(ctx context.Context, datasetID int64) (int64, error) {

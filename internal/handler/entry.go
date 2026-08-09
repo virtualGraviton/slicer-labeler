@@ -120,6 +120,39 @@ func (h *EntryHandler) Update(c echo.Context) error {
 	return c.JSON(http.StatusOK, updated)
 }
 
+func (h *EntryHandler) SetVerified(c echo.Context) error {
+	ctx := c.Request().Context()
+	user, _ := c.Get("user").(*db.User)
+	datasetID, err := strconv.ParseInt(c.Param("datasetId"), 10, 64)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid datasetId"})
+	}
+	if !h.auth.CanWriteDataset(ctx, user, datasetID) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "无权限"})
+	}
+	if err := datasetBusy(h.tm, datasetID); err != nil {
+		return err
+	}
+
+	var req model.SetVerifiedRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	if len(req.EntryIDs) == 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "entryIds is required"})
+	}
+
+	count, err := h.store.SetVerified(ctx, datasetID, req.EntryIDs, req.Verified)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"success": true,
+		"count":   count,
+	})
+}
+
 func (h *EntryHandler) Delete(c echo.Context) error {
 	ctx := c.Request().Context()
 	user, _ := c.Get("user").(*db.User)

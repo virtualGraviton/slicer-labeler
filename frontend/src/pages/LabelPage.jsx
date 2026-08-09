@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Inbox, Loader2 } from 'lucide-react';
-import { deleteEntry as deleteEntryApi, fetchEntries, updateEntry, getDataset } from '../utils/api';
+import { deleteEntry as deleteEntryApi, fetchEntries, updateEntry, getDataset, setEntriesVerified } from '../utils/api';
 import ItemRow from '../components/ItemRow';
 import SplitModal from '../components/SplitModal';
 import MergeModal from '../components/MergeModal';
@@ -103,6 +103,7 @@ export default function LabelPage() {
     return readStoredCurrentPage(datasetId);
   });
   const [checkedIndices, setCheckedIndices] = useState({});
+  const [setVerifiedBusy, setSetVerifiedBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -294,6 +295,71 @@ export default function LabelPage() {
   }, []);
 
   const checkedGlobalIndices = Object.keys(checkedIndices).map(Number).sort((a, b) => a - b);
+
+  // 全选状态：基于当前页推导（all / partial / none）
+  const pageGlobalIndices = pageEntries.map((_, i) => currentPage * PAGE_SIZE + i);
+  const checkedOnPage = pageGlobalIndices.filter((gi) => checkedIndices[gi]);
+  const selectAllState = pageGlobalIndices.length === 0
+    ? 'none'
+    : checkedOnPage.length === pageGlobalIndices.length ? 'all'
+    : checkedOnPage.length > 0 ? 'partial' : 'none';
+
+  const handleSelectAll = useCallback(() => {
+    const pageGlobalIndices = pageEntries.map((_, i) => currentPage * PAGE_SIZE + i);
+    setCheckedIndices((prev) => {
+      const next = { ...prev };
+      if (selectAllState === 'all') {
+        pageGlobalIndices.forEach((gi) => delete next[gi]);
+      } else {
+        pageGlobalIndices.forEach((gi) => { next[gi] = true; });
+      }
+      return next;
+    });
+  }, [currentPage, pageEntries, selectAllState]);
+
+  // 批量设置当前勾选条目的标注状态
+  const handleSetVerified = useCallback(async (verified) => {
+    const ids = checkedGlobalIndices
+      .map((gi) => entriesRef.current[gi]?.id)
+      .filter((id) => typeof id === 'number');
+    if (ids.length === 0) return;
+    setSetVerifiedBusy(true);
+    try {
+      await setEntriesVerified(datasetId, ids, verified);
+      const next = entriesRef.current.slice();
+      ids.forEach((id) => {
+        const idx = next.findIndex((e) => e && e.id === id);
+        if (idx >= 0) next[idx] = { ...next[idx], verified };
+      });
+      entriesRef.current = next;
+      setEntries(next);
+      setCheckedIndices({});
+      showToast(`已标记 ${ids.length} 条为${verified ? '已完成' : '未完成'}`, 'success');
+    } catch (err) {
+      showToast('设置失败: ' + err.message, 'error');
+    } finally {
+      setSetVerifiedBusy(false);
+    }
+  }, [checkedGlobalIndices, datasetId, showToast]);
+
+  // 单条设置标注状态
+  const handleEntrySetVerified = useCallback(async (globalIndex, verified) => {
+    const entry = entriesRef.current[globalIndex];
+    if (!entry?.id) return;
+    setSetVerifiedBusy(true);
+    try {
+      await setEntriesVerified(datasetId, [entry.id], verified);
+      const next = entriesRef.current.slice();
+      next[globalIndex] = { ...entry, verified };
+      entriesRef.current = next;
+      setEntries(next);
+      showToast(`已标记为${verified ? '已完成' : '未完成'}`, 'success');
+    } catch (err) {
+      showToast('设置失败: ' + err.message, 'error');
+    } finally {
+      setSetVerifiedBusy(false);
+    }
+  }, [datasetId, showToast]);
 
   const highlightItems = useCallback((indices, durationMs = 1400) => {
     if (highlightTimerRef.current) {
@@ -705,6 +771,11 @@ export default function LabelPage() {
           onBack={() => navigate(`/models/${datasetId ? '..' : '/'}`)}
           checkedCount={checkedGlobalIndices.length}
           onMergeClick={handleMergeClick}
+          selectAllState={selectAllState}
+          onSelectAll={handleSelectAll}
+          hasEntries={pageEntries.length > 0}
+          onSetVerified={handleSetVerified}
+          setVerifiedBusy={setVerifiedBusy}
           volume={volume}
           onVolumeChange={handleVolumeChange}
           busy={datasetBusy}
@@ -813,6 +884,8 @@ export default function LabelPage() {
               showCountdown={countdownIdx === globalIdx}
               countdownSeconds={countdownIdx === globalIdx ? countdownVal : null}
               countdownTotalSeconds={countdownIdx === globalIdx ? countdownTotalVal : null}
+              verified={entry.verified}
+              onSetVerified={handleEntrySetVerified}
               volume={volume}
               busy={datasetBusy}
               readOnly={readOnly}
