@@ -4,7 +4,18 @@ import { formatTime } from '../utils/fileNaming';
 /**
  * Combined waveform + seek + play component.
  * Waveform doubles as a clickable progress bar with a scanning line.
+ *
+ * 播放引擎：WebAudio（AudioBufferSourceNode）而非 <audio>。
+ * 原因：音频统一走"一次 fetch → decodeAudioData"，波形与播放共用同一份 buffer；
+ * 避免 <audio> 播放 blob 时因 MIME/容器解析在部分浏览器（如 Firefox）报
+ * NS_ERROR_DOM_MEDIA_METADATA_ERR，也彻底消除 media 发起的重复请求。
  */
+let sharedCtx = null;
+function getCtx() {
+  if (!sharedCtx) sharedCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return sharedCtx;
+}
+
 export default function WavePlayer({
   audioUrl,
   audioBuffer,
@@ -22,7 +33,6 @@ export default function WavePlayer({
   volume,
 }) {
   const canvasRef = useRef(null);
-  const audioRef = useRef(null);
   const containerRef = useRef(null);
   const rafRef = useRef(null);
   const waveformDataRef = useRef(null);
@@ -32,26 +42,30 @@ export default function WavePlayer({
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [displayTime, setDisplayTime] = useState(0);
-  const audioLoaded = !!audioUrl;
+  const audioLoaded = !!audioUrl && !!audioBuffer;
 
-  // ---- 懒加载完成（audioUrl 就绪）后自动播放 ----
+  // ---- WebAudio 播放状态 ----
+  const sourceRef = useRef(null);       // 当前 AudioBufferSourceNode
+  const gainRef = useRef(null);         // 音量 GainNode
+  const offsetRef = useRef(0);          // 暂停/seek 后的当前位置（秒）
+  const startCtxTimeRef = useRef(0);    // 本次播放开始的 ctx.currentTime
+  const startOffsetRef = useRef(0);     // 本次播放开始的偏移
+  const naturalEndedRef = useRef(true); // 是否自然结束（区分主动 stop）
+  const volumeRef = useRef(volume);
+  volumeRef.current = volume;
+
+  // ---- 懒加载完成（audioBuffer 就绪）后自动播放 ----
   useEffect(() => {
     if (audioLoaded && pendingPlayRef.current) {
       pendingPlayRef.current = false;
-      const audio = audioRef.current;
-      if (audio) {
-        audio.currentTime = 0;
-        audio.play().catch(() => {});
-      }
+      playFrom(0);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioLoaded]);
 
   // ---- Apply global volume ----
   useEffect(() => {
-    const audio = audioRef.current;
-    if (audio) {
-      audio.volume = volume;
-    }
+    if (gainRef.current) gainRef.current.gain.value = volume;
   }, [volume]);
 
   // ---- Draw waveform (cached) ----
@@ -92,18 +106,15 @@ export default function WavePlayer({
     if (playSignal?.targetIdx !== index) return;
     if (nonce > 0 && nonce !== lastNonceRef.current) {
       if (!audioLoaded) {
-        // 音频尚未懒加载：请求加载，且不消费 nonce，加载完成后由 audioUrl effect 播放
+        // 音频尚未懒加载：请求加载，且不消费 nonce，加载完成后由 audioLoaded effect 播放
         pendingPlayRef.current = true;
         onRequestLoad?.();
         return;
       }
       lastNonceRef.current = nonce;
-      const audio = audioRef.current;
-      if (audio) {
-        audio.currentTime = 0;
-        audio.play().catch(() => {});
-      }
+      playFrom(0);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playSignal, index, audioLoaded, onRequestLoad]);
 
   // ---- 自动播放倒计时阶段预加载（减小跨页连播的等待） ----
@@ -166,21 +177,37 @@ export default function WavePlayer({
     }
   }, []);
 
-  // ---- RAF loop ----
+  // ---- WebAudio: 停止当前 source（主动 stop，不触发自然结束） ----
+  const stopSource = useCallback(() => {
+    if (sourceRef.current) {
+      try { sourceRef.current.onended = null; } catch (_) {}
+      try { sourceRef.current.stop(); } catch (_) {}
+      sourceRef.current = null;
+    }
+    gainRef.current = null;
+  }, []);
+
+  // ---- RAF loop (时间显示 + 扫描线) ----
   const startRAF = useCallback(() => {
     const tick = () => {
-      const audio = audioRef.current;
       const d = waveformDataRef.current;
       const canvas = canvasRef.current;
-      if (audio && d && canvas) {
-        const progress = audio.duration > 0 ? audio.currentTime / audio.duration : 0;
-        const ctx = canvas.getContext('2d');
-        redrawWaveform(ctx, canvas.clientWidth, 52, d.ampArr, d.maxAmp, progress);
+      if (d && canvas) {
+        const ctx = getCtx();
+        const pos = sourceRef.current
+          ? startOffsetRef.current + (ctx.currentTime - startCtxTimeRef.current)
+          : offsetRef.current;
+        setDisplayTime(pos);
+        const progress = audioBuffer && audioBuffer.duration > 0
+          ? Math.max(0, Math.min(1, pos / audioBuffer.duration))
+          : 0;
+        const c2 = canvas.getContext('2d');
+        redrawWaveform(c2, canvas.clientWidth, 52, d.ampArr, d.maxAmp, progress);
       }
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
-  }, [redrawWaveform]);
+  }, [audioBuffer, redrawWaveform]);
 
   const stopRAF = useCallback(() => {
     if (rafRef.current) {
@@ -189,23 +216,84 @@ export default function WavePlayer({
     }
   }, []);
 
-  const resetPlayback = useCallback(() => {
-    const audio = audioRef.current;
-    if (audio) {
-      audio.pause();
-      audio.currentTime = 0;
+  // ---- WebAudio: 从指定位置播放 ----
+  const playFrom = useCallback(async (offset) => {
+    if (!audioBuffer) return;
+    const ctx = getCtx();
+    if (ctx.state === 'suspended') {
+      try { await ctx.resume(); } catch (_) {}
     }
+    if (ctx.state !== 'running') {
+      // 自动播放策略阻止：静默失败（与 <audio> 被 autoplay 限制一致）
+      setPlaying(false);
+      return;
+    }
+    stopSource();
+
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    const gain = ctx.createGain();
+    gain.gain.value = volumeRef.current;
+    source.connect(gain);
+    gain.connect(ctx.destination);
+
+    const clampedOffset = Math.max(0, Math.min(offset, Math.max(0, audioBuffer.duration - 0.001)));
+    naturalEndedRef.current = true;
+    source.onended = () => {
+      sourceRef.current = null;
+      gainRef.current = null;
+      if (naturalEndedRef.current) {
+        setPlaying(false);
+        setDisplayTime(0);
+        stopRAF();
+        const d = waveformDataRef.current;
+        const canvas = canvasRef.current;
+        if (d && canvas) {
+          const ctx2 = canvas.getContext('2d');
+          redrawWaveform(ctx2, canvas.clientWidth, 52, d.ampArr, d.maxAmp, 0);
+        }
+        onEnded?.();
+      }
+    };
+    source.start(0, clampedOffset);
+
+    sourceRef.current = source;
+    gainRef.current = gain;
+    offsetRef.current = clampedOffset;
+    startCtxTimeRef.current = ctx.currentTime;
+    startOffsetRef.current = clampedOffset;
+    setPlaying(true);
+    onPlayStateChange?.(true);
+    onPlay?.();
+    startRAF();
+  }, [audioBuffer, onEnded, onPlay, onPlayStateChange, redrawWaveform, startRAF, stopRAF, stopSource]);
+
+  // ---- WebAudio: 暂停（记录位置） ----
+  const pausePlayback = useCallback(() => {
+    const ctx = getCtx();
+    if (sourceRef.current) {
+      offsetRef.current = startOffsetRef.current + (ctx.currentTime - startCtxTimeRef.current);
+      stopSource();
+    }
+    setPlaying(false);
+    onPlayStateChange?.(false);
     stopRAF();
+  }, [onPlayStateChange, stopRAF, stopSource]);
+
+  // ---- Reset（stopSignal / 停止） ----
+  const resetPlayback = useCallback(() => {
+    stopSource();
+    offsetRef.current = 0;
     setPlaying(false);
     setDisplayTime(0);
-
+    stopRAF();
     const d = waveformDataRef.current;
     const canvas = canvasRef.current;
     if (d && canvas) {
       const ctx = canvas.getContext('2d');
       redrawWaveform(ctx, canvas.clientWidth, 52, d.ampArr, d.maxAmp, 0);
     }
-  }, [stopRAF, redrawWaveform]);
+  }, [redrawWaveform, stopRAF, stopSource]);
 
   // ---- Stop trigger from parent (auto-play stopped by user) ----
   useEffect(() => {
@@ -217,16 +305,11 @@ export default function WavePlayer({
     }
   }, [stopSignal, index, resetPlayback]);
 
-  // ---- Time display throttled ----
-  useEffect(() => {
-    if (!playing) return;
-    const timer = setInterval(() => {
-      if (audioRef.current) {
-        setDisplayTime(audioRef.current.currentTime);
-      }
-    }, 100);
-    return () => clearInterval(timer);
-  }, [playing]);
+  // ---- 组件卸载清理 ----
+  useEffect(() => () => {
+    stopSource();
+    stopRAF();
+  }, [stopRAF, stopSource]);
 
   // ---- Click to seek ----
   const handleWaveformClick = useCallback((e) => {
@@ -236,23 +319,20 @@ export default function WavePlayer({
       return;
     }
     const canvas = canvasRef.current;
-    const audio = audioRef.current;
     const d = waveformDataRef.current;
-    if (!canvas || !audio || !audio.duration || !d) return;
+    if (!canvas || !audioBuffer || !d) return;
     const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const progress = Math.max(0, Math.min(1, x / rect.width));
-    const seekTime = progress * audio.duration;
-    audio.currentTime = seekTime;
+    const progress = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const seekTime = progress * audioBuffer.duration;
+    offsetRef.current = seekTime;
     setDisplayTime(seekTime);
     const ctx = canvas.getContext('2d');
     redrawWaveform(ctx, canvas.clientWidth, 52, d.ampArr, d.maxAmp, progress);
-  }, [audioLoaded, onRequestLoad, redrawWaveform]);
+    if (playing) playFrom(seekTime);
+  }, [audioLoaded, audioBuffer, onRequestLoad, playFrom, playing, redrawWaveform]);
 
   // ---- Play/Pause ----
   const togglePlay = useCallback(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
     if (!audioLoaded) {
       // 未加载：请求加载并在完成后自动播放
       pendingPlayRef.current = true;
@@ -260,24 +340,11 @@ export default function WavePlayer({
       return;
     }
     if (playing) {
-      audio.pause();
+      pausePlayback();
     } else {
-      audio.play().catch(() => {});
+      playFrom(offsetRef.current);
     }
-  }, [audioLoaded, onRequestLoad, playing]);
-
-  const handleEnded = useCallback(() => {
-    setPlaying(false);
-    stopRAF();
-    setDisplayTime(0);
-    const d = waveformDataRef.current;
-    const canvas = canvasRef.current;
-    if (d && canvas) {
-      const ctx = canvas.getContext('2d');
-      redrawWaveform(ctx, canvas.clientWidth, 52, d.ampArr, d.maxAmp, 0);
-    }
-    onEnded?.();
-  }, [stopRAF, redrawWaveform, onEnded]);
+  }, [audioLoaded, onRequestLoad, pausePlayback, playFrom, playing]);
 
   const countdownProgress = countdownActive && countdownTotalSeconds > 0
     ? Math.max(0, Math.min(1, 1 - (countdownSeconds || 0) / countdownTotalSeconds))
@@ -322,15 +389,6 @@ export default function WavePlayer({
       <div className="text-[11px] text-[color:var(--text-secondary)] text-center tabular-nums">
         {formatTime(displayTime)} / {formatTime(duration)}
       </div>
-      <audio
-        ref={audioRef}
-        src={audioUrl}
-        preload="none"
-        onPlay={() => { setPlaying(true); onPlayStateChange?.(true); onPlay?.(); startRAF(); }}
-        onPause={() => { setPlaying(false); onPlayStateChange?.(false); stopRAF(); }}
-        onEnded={handleEnded}
-        onLoadedMetadata={(e) => setDuration(e.target.duration)}
-      />
     </div>
   );
 }
