@@ -378,12 +378,15 @@ export default function LabelPage() {
     }
     if (ids.length === 0) return;
     await setEntriesVerified(datasetId, ids, verified);
-    const next = current.slice();
-    indices.forEach((g) => {
-      if (next[g]) next[g] = { ...next[g], verified };
+    // 在 updater 内基于最新 prev 更新，避免标记 await 期间自动播放加载的新页数据被旧快照覆盖
+    setEntries((prev) => {
+      const next = prev.slice();
+      indices.forEach((g) => {
+        if (next[g]) next[g] = { ...next[g], verified };
+      });
+      entriesRef.current = next;
+      return next;
     });
-    entriesRef.current = next;
-    setEntries(next);
   }, [datasetId]);
 
   const highlightItems = useCallback((indices, durationMs = 1400) => {
@@ -567,21 +570,18 @@ export default function LabelPage() {
   scheduleNextRef.current = scheduleNext;
 
   // Called when an item's audio ends → advance to the next item
-  const handleAudioEnded = useCallback(async (globalIndex) => {
+  const handleAudioEnded = useCallback((globalIndex) => {
     if (!autoPlayEnabledRef.current) return;
     const nextIdx = globalIndex + 1;
 
-    // 自动标记：播放完一页最后一条、即将翻页时，将该页全部条目标记为已完成
+    // 自动标记：一整页播放完成后的附加操作，不阻塞自动播放继续翻页（fire-and-forget）
     if (settingsRef.current.autoMark && !readOnly) {
       const finishedPage = Math.floor(globalIndex / PAGE_SIZE);
       const targetPage = Math.floor(nextIdx / PAGE_SIZE);
       if (finishedPage !== targetPage) {
-        try {
-          await markPageVerified(finishedPage, true);
-        } catch (err) {
+        markPageVerified(finishedPage, true).catch((err) => {
           showToast('自动标记失败: ' + err.message, 'error');
-        }
-        if (!autoPlayEnabledRef.current) return;
+        });
       }
     }
 
