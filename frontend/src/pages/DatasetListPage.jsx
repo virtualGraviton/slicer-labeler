@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Plus, ArrowLeft, Loader2, ExternalLink, Pencil, Trash2, Clock, Upload, Archive, Share2 } from 'lucide-react';
+import { Plus, ArrowLeft, Loader2, ExternalLink, Pencil, Trash2, Clock, Upload, Archive, Share2, Bookmark } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import DatasetFormModal from '../components/dataset/DatasetFormModal';
 import ImportModal from '../components/dataset/ImportModal';
@@ -19,6 +19,18 @@ const rowAnim = (i) => ({
   transition: { delay: i * 0.04, duration: 0.25, ease: 'easeOut' },
 });
 
+// 读取本地记录的各数据集最后访问页码（{ [datasetId]: 1-based page }）
+function readLastPageByDataset() {
+  try {
+    const raw = window.localStorage.getItem('slicer-labeler.preferences');
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return (parsed && parsed.lastPageByDataset) || {};
+  } catch (_) {
+    return {};
+  }
+}
+
 export default function DatasetListPage() {
   const { modelId } = useParams();
   const navigate = useNavigate();
@@ -32,6 +44,7 @@ export default function DatasetListPage() {
   const [archiveTarget, setArchiveTarget] = useState(null);
   const [grantTarget, setGrantTarget] = useState(null);
   const [archiving, setArchiving] = useState(false);
+  const [lastPageByDataset, setLastPageByDataset] = useState(readLastPageByDataset);
   const { isDatasetBusy } = useTasks();
 
   const loadData = useCallback(async () => {
@@ -139,7 +152,14 @@ export default function DatasetListPage() {
                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 flex items-center gap-1"><Clock size={11} />{new Date(ds.created_at).toLocaleDateString('zh-CN')}</p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  <button onClick={() => navigate(`/datasets/${ds.id}/entries`)}
+                  {lastPageByDataset[ds.id] && (
+                    <span title="上次访问位置"
+                      className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-medium rounded-lg
+                        text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-900/30">
+                      <Bookmark size={10} />上次第 {lastPageByDataset[ds.id]} 页
+                    </span>
+                  )}
+                  <button onClick={() => navigate(`/datasets/${ds.id}/entries${lastPageByDataset[ds.id] ? `?page=${lastPageByDataset[ds.id]}` : ''}`)}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-teal-700
                       bg-teal-50 hover:bg-teal-100 dark:text-teal-300 dark:bg-teal-900/30 dark:hover:bg-teal-900/50 transition-colors">
                     进入标注 <ExternalLink size={12} />

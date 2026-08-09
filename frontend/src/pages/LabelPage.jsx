@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Inbox, Loader2 } from 'lucide-react';
 import { deleteEntry as deleteEntryApi, fetchEntries, updateEntry, getDataset } from '../utils/api';
 import ItemRow from '../components/ItemRow';
@@ -48,8 +48,11 @@ function writeStoredPreferences(nextPreferences) {
   } catch (_) {}
 }
 
-function readStoredCurrentPage() {
-  const pageNumber = Number(readStoredPreferences().currentPage);
+// 本地记录：per-dataset 的"最后访问页码"（1-based），供列表页显示标签
+const LAST_PAGE_KEY = 'lastPageByDataset';
+
+function readStoredCurrentPage(datasetId) {
+  const pageNumber = Number(readStoredPreferences().lastPageByDataset?.[datasetId]);
   if (!Number.isFinite(pageNumber)) return 0;
   return Math.max(0, Math.floor(pageNumber) - 1);
 }
@@ -83,6 +86,7 @@ const TOAST_BG = {
 export default function LabelPage() {
   const { datasetId: datasetIdParam } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const datasetId = parseInt(datasetIdParam, 10);
   const { isDatasetBusy } = useTasks();
   const datasetBusy = isDatasetBusy(datasetId);
@@ -92,7 +96,12 @@ export default function LabelPage() {
 
   const [entries, setEntries] = useState([]); // sparse cache: loaded pages filled, others undefined
   const [total, setTotal] = useState(0);
-  const [currentPage, setCurrentPage] = useState(readStoredCurrentPage);
+  const [currentPage, setCurrentPage] = useState(() => {
+    // URL ?page=N 优先（1-based）；无则回退到本地记录的页码
+    const urlPage = parseInt(searchParams.get('page'), 10);
+    if (Number.isFinite(urlPage) && urlPage >= 1) return urlPage - 1;
+    return readStoredCurrentPage(datasetId);
+  });
   const [checkedIndices, setCheckedIndices] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -149,12 +158,14 @@ export default function LabelPage() {
   }, [entries]);
 
   useEffect(() => {
+    // 按数据集记录最后一次访问页码（1-based），供列表页显示"上次位置"标签
+    const prev = readStoredPreferences();
     writeStoredPreferences({
-      currentPage: currentPage + 1,
+      lastPageByDataset: { ...(prev.lastPageByDataset || {}), [datasetId]: currentPage + 1 },
       settings,
       volume,
     });
-  }, [currentPage, settings, volume]);
+  }, [currentPage, settings, volume, datasetId]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const pageEntries = (entries.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE) || []).filter(Boolean);
@@ -212,6 +223,13 @@ export default function LabelPage() {
   useEffect(() => {
     setCurrentPage((page) => Math.min(Math.max(page, 0), totalPages - 1));
   }, [total, totalPages]);
+
+  // URL ?page=N 或本地记录恢复的页码：数据就绪后补加载对应页
+  useEffect(() => {
+    if (total > 0 && !loadedPagesRef.current.has(currentPage)) {
+      ensurePageLoaded(currentPage);
+    }
+  }, [currentPage, total, ensurePageLoaded]);
 
   // Toast
   const showToast = useCallback((message, type = 'info') => {
