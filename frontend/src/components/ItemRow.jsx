@@ -1,7 +1,28 @@
-import { useState, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { getAudioUrl } from '../utils/api';
 import { parseFilename, formatTime, samplesToTime, getAbsoluteTime, getBilibiliLink } from '../utils/fileNaming';
 import WavePlayer from './WavePlayer';
+
+// 模块级音频缓存：同一条目只请求一次，波形解码与播放共用同一份数据（消除重复下载）。
+const audioDataCache = new Map(); // entryId -> { blobUrl, buffer }
+let sharedAudioCtx = null;
+function getAudioContext() {
+  if (!sharedAudioCtx) sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return sharedAudioCtx;
+}
+
+async function loadAudioOnce(entryId) {
+  const cached = audioDataCache.get(entryId);
+  if (cached) return cached;
+  const res = await fetch(getAudioUrl(entryId));
+  if (!res.ok) throw new Error(`加载失败 (HTTP ${res.status})`);
+  const arrayBuf = await res.arrayBuffer();
+  const buffer = await getAudioContext().decodeAudioData(arrayBuf);
+  const blobUrl = URL.createObjectURL(new Blob([arrayBuf], { type: 'audio/wav' }));
+  const data = { blobUrl, buffer };
+  audioDataCache.set(entryId, data);
+  return data;
+}
 
 const BTN_SM_ACCENT = 'inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-[13px] rounded-lg font-medium cursor-pointer relative overflow-hidden transition-all duration-200 text-white bg-[color:var(--accent)] border border-[color:var(--accent)] shadow-[0_4px_14px_var(--accent-glow)] hover:bg-[color:var(--accent-hover)] hover:shadow-[0_6px_20px_var(--accent-glow)] hover:-translate-y-px active:translate-y-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none';
 
@@ -35,33 +56,30 @@ export default function ItemRow({
   verified = false,
   onSetVerified,
 }) {
+  const [loadState, setLoadState] = useState('lazy'); // lazy | loading | loaded | error
   const [audioBuffer, setAudioBuffer] = useState(null);
   const [audioUrl, setAudioUrl] = useState('');
+  const loadStateRef = useRef('lazy');
+  loadStateRef.current = loadState;
   const info = parseFilename(entry.wavPath);
 
-  useEffect(() => {
-    const url = getAudioUrl(entry.id);
-    setAudioUrl(url);
+  // 懒加载：手动加载 / 手动播放 / 自动播放等操作触发，加载结果按 entryId 缓存复用
+  const requestLoad = useCallback(async () => {
+    if (loadStateRef.current === 'loading' || loadStateRef.current === 'loaded') return;
+    loadStateRef.current = 'loading';
+    setLoadState('loading');
+    try {
+      const data = await loadAudioOnce(entry.id);
+      setAudioBuffer(data.buffer);
+      setAudioUrl(data.blobUrl);
+      loadStateRef.current = 'loaded';
+      setLoadState('loaded');
+    } catch (err) {
+      loadStateRef.current = 'error';
+      setLoadState('error');
+      console.error('加载音频失败:', err);
+    }
   }, [entry.id]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setAudioBuffer(null);
-    const url = getAudioUrl(entry.id);
-    fetch(url)
-      .then((res) => res.arrayBuffer())
-      .then((arrayBuf) => {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        return audioCtx.decodeAudioData(arrayBuf);
-      })
-      .then((buf) => {
-        if (!cancelled) setAudioBuffer(buf);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [entry.wavPath]);
 
   const bilibiliUrl = getBilibiliLink(entry.wavPath);
   const absoluteTime = getAbsoluteTime(entry.wavPath);
@@ -123,6 +141,8 @@ export default function ItemRow({
         <WavePlayer
           audioUrl={audioUrl}
           audioBuffer={audioBuffer}
+          loadState={loadState}
+          onRequestLoad={requestLoad}
           onEnded={() => onAudioEnded?.(index)}
           playSignal={playSignal}
           stopSignal={stopSignal}
