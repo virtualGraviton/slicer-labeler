@@ -1,14 +1,19 @@
 /**
- * New filename format (v2):
- * vocal_{BV}-p{N}_ch{CCC}_{hhmmss_start}_{hhmmss_end}.m4a_10.wav_{start_sample}_{end_sample}.wav
- * Example:
+ * Slicer wav filename (generic):
+ * vocal_{BV}-p{N}_ch{CCC}_{hhmmss_start}_{hhmmss_end}.m4a..._{start_sample}_{end_sample}.wav
+ * Examples:
  *   vocal_BV164LD6DEjb-p2_ch002_002004_003959.m4a_10.wav_0000028480_0000119040.wav
+ *   vocal_BV1Fkj96AEdo-p2_ch001_000000_002000.m4a_20.wav_10.wav_0000036800_0000146240.wav
+ *
+ * Only the key segments are anchored: leading BV/part, the ch time-range block,
+ * and the trailing sample pair. The middle hop segments (m4a numbers, extra
+ * .wav hops) may vary and are matched loosely.
  *
  * BV/p are embedded in filename, ch has absolute time range in original audio.
  * No pre-trim or part offset accumulation needed.
  */
 
-const FILENAME_RE = /^vocal_(BV\w+)-p(\d+)_ch(\d+)_(\d{6})_(\d{6})\.m4a_10\.wav_(\d{10})_(\d{10})$/;
+const FILENAME_RE = /^vocal_(BV\w+)-p(\d+)_ch(\d+)_(\d{6})_(\d{6})\.m4a.*?_(\d{10})_(\d{10})$/;
 
 /**
  * Parse full metadata from a wav filename.

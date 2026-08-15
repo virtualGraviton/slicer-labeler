@@ -14,6 +14,9 @@ const SampleRate = 32000
 //
 //	vocal_{bv}-p{part}_ch{ch}_{chStart}_{chEnd}.m4a_10.wav_{startSample}_{endSample}.wav
 //
+// The middle hop segments (m4a number, extra .wav hops) may vary; see
+// audio.ParseFilename for the exact pattern.
+//
 // The second coordinate pair is relative to the first-level chunk (ch), so
 // absolute time in the original video = chStartSec + startSample/SampleRate.
 // Accepts the basename with or without the trailing ".wav".
