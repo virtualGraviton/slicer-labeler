@@ -193,7 +193,7 @@ export default function LabelPage() {
 
   const ensurePageLoaded = useCallback(async (page) => {
     if (loadedPagesRef.current.has(page)) return;
-    await loadPage(page);
+    return loadPage(page);
   }, [loadPage]);
 
   const goToPage = useCallback((page) => {
