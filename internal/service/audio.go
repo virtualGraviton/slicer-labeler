@@ -155,9 +155,11 @@ func durationFromFilename(absPath string) float64 {
 }
 
 // ParseFilename extracts components from a slicer filename.
-// Format: vocal_BVID-pX_chY_MMDD_HHMMSS.m4a_10.wav_START_END
+// Format: vocal_BVID-pX_chY_HHMMSS_HHMMSS.m4a[...]_START_END
+// Only the BV/part prefix, the ch time-range block and the trailing sample pair
+// are anchored; intermediate hop segments (m4a number, extra .wav hops) vary.
 func ParseFilename(basename string) (bvid, p, ch, date, timePart, start, end string, ok bool) {
-	re := regexp.MustCompile(`^vocal_(BV\w+)-p(\d+)_ch(\d+)_(\d{6})_(\d{6})\.m4a_10\.wav_(\d{10})_(\d{10})$`)
+	re := regexp.MustCompile(`^vocal_(BV\w+)-p(\d+)_ch(\d+)_(\d{6})_(\d{6})\.m4a.*?_(\d{10})_(\d{10})$`)
 	matches := re.FindStringSubmatch(basename)
 	if len(matches) != 8 {
 		return "", "", "", "", "", "", "", false
