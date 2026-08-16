@@ -200,11 +200,13 @@ export default function LabelPage() {
     const clamped = Math.max(0, Math.min(totalPages - 1, page));
     setCurrentPage(clamped);
     setCheckedIndices({});
+    setPlaySignal({ nonce: 0 }); // 翻页后新页行组件全新挂载，清掉残留播放信号，避免误触发单次播放
     ensurePageLoaded(clamped);
   }, [totalPages, ensurePageLoaded]);
 
   const resetEntriesCache = useCallback(async (page) => {
     loadedPagesRef.current.clear();
+    setPlaySignal({ nonce: 0 }); // 列表重建（删除/切分/合并）后行组件全新挂载，清掉残留播放信号，避免误触发单次播放
     setEntries([]);
     await ensurePageLoaded(page);
   }, [ensurePageLoaded]);
